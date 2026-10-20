@@ -44,13 +44,67 @@ pip install -e ".[qwen]"
 
 可选 extra 一览：`api` · `ocr` · `qwen` · `mt5` · `demo` · `desktop` · `train` · `synth` · `dev`。
 
-### 模型权重（不随仓库分发）
+## 他人如何获取模型
 
-1. 从 Hugging Face 下载 [Violet-yo/Vision-Braille-Qwen3-8B](https://huggingface.co/Violet-yo/Vision-Braille-Qwen3-8B) 到 `models/Vision-Braille-Qwen3-8B/`。
-2. （可选）将自训 LoRA 放到 `models/lora_tables/`（含 `adapter_config.json` 与 `adapter_model.safetensors`）。
-3. Windows 可参考 `scripts/windows/Download-BaseModel.ps1`。
+本仓库**不包含**任何模型权重（`.gitignore` 已忽略 `models/`、`outputs/`、`*.safetensors`、`*.bin` 等）。克隆代码后，请自行下载基座模型；LoRA 适配器需自备或跳过。
 
-`.gitignore` 已排除 `models/`、`outputs/`、`*.safetensors`、`*.bin`、`.venv/` 等，避免误传大文件。
+### 1. 克隆本仓库
+
+```bash
+git clone https://github.com/AAA2025-KING/-.git chinese-braille-toolkit
+cd chinese-braille-toolkit
+```
+
+### 2. 一键下载基座模型 Vision-Braille-Qwen3-8B
+
+目标目录：`models/Vision-Braille-Qwen3-8B/`（约 16GB 磁盘空间）。
+
+模型页：<https://huggingface.co/Violet-yo/Vision-Braille-Qwen3-8B>
+
+许可：**CC BY-NC-SA 4.0**（研究 / 非商用演示可用；商用前请自行核授权）。
+
+先安装 Hugging Face CLI（任选其一）：
+
+```bash
+pip install -U "huggingface_hub[cli]"
+# 或
+pip install -U huggingface_hub
+```
+
+**Linux / macOS**（在项目根目录执行）：
+
+```bash
+mkdir -p models
+huggingface-cli download Violet-yo/Vision-Braille-Qwen3-8B \
+  --local-dir models/Vision-Braille-Qwen3-8B
+```
+
+**Windows**（PowerShell 或 cmd，在项目根目录）：
+
+```bat
+mkdir models 2>nul
+huggingface-cli download Violet-yo/Vision-Braille-Qwen3-8B --local-dir models/Vision-Braille-Qwen3-8B
+```
+
+也可用 Python API：
+
+```bash
+python -c "from huggingface_hub import snapshot_download; snapshot_download('Violet-yo/Vision-Braille-Qwen3-8B', local_dir='models/Vision-Braille-Qwen3-8B')"
+```
+
+Windows 另可参考脚本：`scripts/windows/Download-BaseModel.ps1`。
+
+下载完成后目录中应有 `config.json`、分片 `model-*-of-*.safetensors`、tokenizer 等文件。
+
+### 3. LoRA 适配器（可选，GitHub 上没有）
+
+默认若存在会加载 `models/lora_tables/`（需含 `adapter_config.json` 与 `adapter_model.safetensors`）。
+
+- **本仓库不提供** `models/lora_tables` 权重，请勿指望从 GitHub 拉取。
+- 你可以：用 `scripts/train_lora_tables.py` **自己训练**后拷到该目录；或
+- **跳过 LoRA**，只使用上面的基座模型（无 adapter 时后端会按基座推理）。
+
+请勿把 `models/` 或任何 `*.safetensors` 提交进 Git。
 
 ## 启动网页 API
 
