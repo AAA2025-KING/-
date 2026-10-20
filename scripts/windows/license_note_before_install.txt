@@ -1,0 +1,8 @@
+中文盲文翻译演示 — 安装前说明
+
+1. 本安装包默认包含：程序代码、表格域 LoRA 适配器、启动脚本。
+2. 本安装包默认不包含：Vision-Braille-Qwen3-8B 完整权重（体积大）。
+3. 基座模型许可为 Creative Commons BY-NC-SA 4.0（非商业向，再分发需保持相同许可）。
+   请阅读：https://huggingface.co/Violet-yo/Vision-Braille-Qwen3-8B
+4. 安装后请先运行「安装 Python 环境」，再运行「下载基座模型」，最后「启动盲文演示」。
+5. 需要 NVIDIA GPU（建议显存 ≥ 8GB）与 Python 3.10+。

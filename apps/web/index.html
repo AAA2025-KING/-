@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>中文盲文翻译</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="card">
+    <header>
+      <h1>中文盲文翻译</h1>
+      <p class="sub">HTTP API + 网页前端 · 翻译 / 图片 OCR / 表格还原（默认 qwen8b + LoRA）</p>
+    </header>
+
+    <section class="status" id="statusBox" aria-live="polite">
+      正在检查服务状态…
+    </section>
+
+    <label for="braille">盲文输入</label>
+    <textarea id="braille" rows="4" placeholder="粘贴 Unicode 盲文，例如：⠓⠊⠼ ⠍⠊⠼⠂ &#10;表格可用 | 与 || 分隔单元格/行"></textarea>
+
+    <label for="context">上下文（可选）</label>
+    <input id="context" type="text" placeholder="例如：成绩表表头" />
+
+    <div class="row">
+      <label for="backend">后端</label>
+      <select id="backend">
+        <option value="qwen8b" selected>qwen8b</option>
+        <option value="mt5">mt5</option>
+        <option value="auto">auto</option>
+      </select>
+      <label class="check">
+        <input type="checkbox" id="asTable" checked />
+        按表格还原
+      </label>
+    </div>
+
+    <div class="samples">
+      <span>样例：</span>
+      <button type="button" class="chip" data-br="⠓⠊⠼ ⠍⠊⠼⠂" data-ctx="成绩表表头">姓名</button>
+      <button type="button" class="chip" data-br="⠬ ⠒" data-ctx="成绩表表头">语文</button>
+      <button type="button" class="chip" data-br="⠌⠦ ⠎⠧⠁" data-ctx="成绩表姓名">张三</button>
+      <button type="button" class="chip" data-br="⠙⠧ ⠛⠫⠆" data-ctx="销售表表头">单价</button>
+      <button type="button" class="chip chip-table"
+        data-br="⠓⠊⠼ ⠍⠊⠼⠂ | ⠬ ⠒ | ⠱⠥ ⠓⠾ | ⠊⠼ ⠬⠄ || ⠌⠦ ⠎⠧⠁ | ⠼⠊⠃ | ⠼⠓⠓ | ⠼⠓⠑ || ⠇⠊ ⠎ | ⠼⠛⠓ | ⠼⠊⠑ | ⠼⠓⠚ || ⠶⠂ ⠥ | ⠼⠓⠑ | ⠼⠓⠃ | ⠼⠊⠚"
+        data-ctx="成绩表"
+        data-table="1">成绩表(整表)</button>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="btnTranslate" class="primary">翻译</button>
+      <button type="button" id="btnClear" class="ghost">清空</button>
+    </div>
+
+    <hr class="sep" />
+
+    <label for="imageFile">图片识别盲文</label>
+    <div class="row file-row">
+      <input id="imageFile" type="file" accept="image/*" />
+      <button type="button" id="btnPipeline" class="primary">识别并翻译</button>
+    </div>
+    <p class="hint">上传盲文点阵图或表格截图；走 <code>/v1/pipeline</code>（OCR → 单元格翻译 → 表格还原）。</p>
+
+    <label for="result">汉字结果</label>
+    <textarea id="result" rows="3" readonly placeholder="翻译结果将显示在这里"></textarea>
+
+    <div id="tableWrap" class="table-wrap hidden">
+      <label>还原表格</label>
+      <div id="tableOut" class="table-out"></div>
+      <div class="table-toolbar" id="tableToolbar">
+        <div id="cellPos" class="cell-pos" aria-live="polite">点击或用方向键选择单元格</div>
+        <div class="toolbar-row">
+          <label class="jump-label" for="jumpRow">行</label>
+          <input id="jumpRow" type="number" min="1" step="1" class="jump-num" />
+          <label class="jump-label" for="jumpCol">列</label>
+          <input id="jumpCol" type="number" min="1" step="1" class="jump-num" />
+          <button type="button" id="btnJump" class="ghost">定位</button>
+        </div>
+        <div class="toolbar-row speak-row">
+          <button type="button" id="btnSpeakCell" class="ghost">朗读单元格</button>
+          <button type="button" id="btnSpeakRow" class="ghost">朗读本行</button>
+          <button type="button" id="btnSpeakTable" class="ghost">朗读整表</button>
+          <button type="button" id="btnSpeakStop" class="ghost">停止</button>
+        </div>
+        <p id="ttsHint" class="hint hidden">当前浏览器不支持语音合成（SpeechSynthesis），无法朗读。</p>
+      </div>
+      <details>
+        <summary>Markdown / CSV</summary>
+        <label for="mdOut">Markdown</label>
+        <textarea id="mdOut" rows="5" readonly></textarea>
+        <label for="csvOut">CSV</label>
+        <textarea id="csvOut" rows="4" readonly></textarea>
+      </details>
+    </div>
+
+    <p class="meta" id="meta"></p>
+
+    <footer>
+      <p>已支持 <strong>OCR 图片识别</strong>、<strong>表格还原</strong>、<strong>单元格定位</strong> 与 <strong>朗读</strong>；复杂照片仍可能不准。基座模型许可多为 <strong>CC BY-NC-SA</strong>（非商用）。</p>
+      <p>API：<code>GET /health</code> · <code>POST /v1/translate</code> · <code>POST /v1/detect</code> · <code>POST /v1/pipeline</code> · 文档 <code>/docs</code></p>
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

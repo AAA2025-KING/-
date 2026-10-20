@@ -1,0 +1,59 @@
+# QLoRA defaults aimed at ~8GB VRAM (e.g. RTX 5060 / 4060).
+# Override via CLI flags on scripts/train_lora_tables.py.
+
+model:
+  # Prefer the Braille-tuned checkpoint; fall back to base Qwen3-8B if needed.
+  path: Violet-yo/Vision-Braille-Qwen3-8B
+  # Alternate: Qwen/Qwen3-8B
+  trust_remote_code: true
+  torch_dtype: bfloat16
+
+quantization:
+  bits: 4                 # 4 = QLoRA (8GB); 16 = LoRA bf16 (needs ~16GB+)
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: bfloat16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+data:
+  path: data/train_tables.jsonl  # was train_tables_placeholder.jsonl
+  # Mix later: synthetic tables + Violet-yo/Chinese-Braille-Dataset-10per-Tone sample
+  max_seq_length: 512
+  packing: false
+
+train:
+  output_dir: outputs/lora_tables
+  max_steps: 200          # smoke / skeleton; raise for real runs
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_steps: 100
+  save_total_limit: 2
+  bf16: true
+  gradient_checkpointing: true
+  optim: paged_adamw_8bit
+  report_to: none
+  seed: 42
+
+eval:
+  # Keep using the synthetic table suite for regression:
+  #   data/synthetic_tables/tables.jsonl
+  # Scripts: scripts/eval_mt5_tables.py / scripts/eval_qwen8b_tables.py
+  holdout: data/synthetic_tables/tables.jsonl

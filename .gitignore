@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+*.whl
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+.venv-*/
+venv/
+env/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Large model weights & training outputs (do NOT upload)
+models/
+outputs/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.ckpt
+
+# Local debug / OS junk
+user_upload_debug*
+**/user_upload_debug*
+*.lnk
+Recent/
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+*.log.err
+outputs_*.log
+outputs_*.log.err
+
+# Packaged demos that may embed weights
+dist/chinese-braille-demo/models/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local download / eval noise
+**/hf_download*.log
+**/eval_*_console.log
+data/samples/user_upload_debug*

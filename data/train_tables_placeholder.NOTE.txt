@@ -1,0 +1,3 @@
+SUPERSEDED by data/train_tables.jsonl (expanded synthetic table ShareGPT set).
+This placeholder (~43 examples) remains only for historical smoke runs.
+Point configs/lora_tables.yaml data.path at data/train_tables.jsonl for real FT.
