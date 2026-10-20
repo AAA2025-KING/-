@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>使用说明 · 中文盲文翻译</title>
+  <link rel="stylesheet" href="/static/style.css?v=20261021ui1" />
+</head>
+<body>
+  <main class="card help-page">
+    <a class="help-back" href="/">← 返回翻译页</a>
+    <h1>使用说明</h1>
+    <p class="sub">中文盲文翻译网页端：输入流程、OCR 注意事项、表格还原、许可与 API。</p>
+
+    <h2 id="workflow">主流程</h2>
+    <ol>
+      <li>在「盲文输入」粘贴 Unicode 盲文；表格可用 <code>|</code> 分隔单元格、<code>||</code> 分隔行，粘贴后会自动成可编辑表格。</li>
+      <li>（可选）填写上下文，选择后端（默认 <code>qwen8b</code>）。</li>
+      <li>整表或含分隔符内容请勾选「按表格还原」（含 <code>|</code> 时会自动勾选）。</li>
+      <li>点「翻译」；结果区显示汉字；若有表格可点击单元格定位，并用朗读按钮听读。</li>
+      <li>（可选）上传图片后点「识别并翻译」，走 OCR → 翻译流水线。</li>
+    </ol>
+
+    <h2 id="ocr">图片 OCR 说明</h2>
+    <p>支持两类图：</p>
+    <ul>
+      <li><strong>网页 / Unicode 盲文表格截图</strong>：自动切格并读取 U+2800 段盲文字形。</li>
+      <li><strong>凸起点阵照片</strong>：需要较清晰的<strong>实心圆点</strong>。</li>
+    </ul>
+    <div class="help-callout">
+      空心圈教材图、严重模糊或反光过强的照片容易失败。此时请改从主页面直接粘贴 Unicode 盲文。
+    </div>
+    <p>图片识别接口为 <code>POST /v1/pipeline</code>（OCR → 单元格翻译 → 表格还原）。</p>
+
+    <h2 id="table">表格与样例</h2>
+    <ul>
+      <li>检测到 <code>|</code> / <code>||</code> 时会展开「输入表格」，可直接改单元格，文本区会同步。</li>
+      <li>样例芯片可一键填入短语或整表（含 <code>data-sample</code> / <code>data-cells</code> 精确网格）。</li>
+      <li>结果表格支持点击 / 方向键选格、行列定位、朗读单元格 / 本行 / 整表。</li>
+      <li>Markdown / CSV 在结果区折叠面板中导出。</li>
+    </ul>
+
+    <h2 id="license">许可</h2>
+    <p>本工具演示用途。默认所用基座模型许可多为 <strong>CC BY-NC-SA</strong>，仅限<strong>非商业</strong>使用。请同时遵守仓库 <code>LICENSE</code> 与上游模型条款。</p>
+
+    <h2 id="api">API 一览</h2>
+    <ul>
+      <li><code>GET /health</code> — 服务与适配器状态</li>
+      <li><code>POST /v1/translate</code> — 盲文 → 汉字（可 <code>as_table</code>）</li>
+      <li><code>POST /v1/detect</code> — 图片检测 / OCR</li>
+      <li><code>POST /v1/pipeline</code> — 识别并翻译</li>
+      <li>交互式文档：<a href="/docs">/docs</a>（OpenAPI）</li>
+    </ul>
+    <p>仓库内 Markdown 说明见 <code>docs/web-ui.md</code>。</p>
+
+    <footer>
+      <p><a href="/">返回翻译页</a> · <a href="/docs">API Docs</a></p>
+    </footer>
+  </main>
+</body>
+</html>
