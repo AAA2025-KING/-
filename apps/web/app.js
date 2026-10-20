@@ -24,11 +24,53 @@
   const btnSpeakTable = $("btnSpeakTable");
   const btnSpeakStop = $("btnSpeakStop");
   const ttsHint = $("ttsHint");
+  const inputTableWrap = $("inputTableWrap");
+  const inputTableOut = $("inputTableOut");
+  const btnHideInputTable = $("btnHideInputTable");
+
+  const CELL_SEP = " | ";
+  const ROW_SEP = " || ";
+
+  // Exact grids from data/synthetic_tables t01 / 2-col demo.
+  // Chip clicks MUST load these arrays directly — never parseFlat(textarea).
+  const SAMPLE_TABLES = {
+    t01: [
+      ["⠓⠊⠼ ⠍⠊⠼⠂", "⠬ ⠒", "⠱⠥ ⠓⠾", "⠊⠼ ⠬⠄"],
+      ["⠌⠦ ⠎⠧⠁", "⠼⠊⠃", "⠼⠓⠓", "⠼⠓⠑"],
+      ["⠇⠊ ⠎", "⠼⠛⠓", "⠼⠊⠑", "⠼⠓⠚"],
+      ["⠶⠂ ⠥", "⠼⠓⠑", "⠼⠓⠃", "⠼⠊⠚"],
+    ],
+    subject_mon: [
+      ["⠅⠢ ⠍⠥", "⠌⠷ ⠊"],
+      ["⠬ ⠒", "⠱⠥ ⠓⠾"],
+    ],
+  };
+
+  function loadSampleGrid(norm, label) {
+    const grid = (norm || []).map((row) => (row || []).map((c) => String(c ?? "")));
+    if (!grid.length || !Array.isArray(grid[0])) return false;
+    clearTable();
+    clearInputTable();
+    inputTableCollapsed = false;
+    syncingFromInputTable = true;
+    brailleEl.value = cellsToFlat(grid);
+    syncingFromInputTable = false;
+    if (asTableEl) asTableEl.checked = true;
+    renderInputTable(grid);
+    // Freeze shape: do not let a later textarea 'input' rebuild via parseFlat.
+    inputCells = grid.map((row) => row.slice());
+    metaEl.textContent = "已填入样例「" + label + "」" + grid.length + "×" + grid[0].length + "，可点翻译。";
+    return true;
+  }
 
   /** @type {string[][]} */
   let tableCells = [];
+  /** @type {string[][]} */
+  let inputCells = [];
   let selR = -1;
   let selC = -1;
+  let syncingFromInputTable = false;
+  let inputTableCollapsed = false;
   /** @type {SpeechSynthesisVoice | null} */
   let zhVoice = null;
 
@@ -37,6 +79,601 @@
   function setStatus(text, kind) {
     statusBox.textContent = text;
     statusBox.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function isFlatTable(text) {
+    const s = text || "";
+    if (s.includes(ROW_SEP) || s.includes("||")) return true;
+    let count = 0;
+    let idx = 0;
+    while ((idx = s.indexOf(CELL_SEP, idx)) !== -1) {
+      count++;
+      idx += CELL_SEP.length;
+    }
+    if (count >= 2) return true;
+    const pipeCount = (s.match(/\|/g) || []).length;
+    if (pipeCount >= 2) return true;
+    // pasted multi-line tables: newline + at least one pipe
+    if (s.includes("\n") && pipeCount >= 1) return true;
+    return false;
+  }
+
+  function sanitizeCell(text) {
+    return String(text ?? "")
+      .replace(/<\/?\s*tool_?response\s*>/gi, "")
+      .replace(/<\/?\s*tool_?calls?\s*>/gi, "")
+      .replace(/<\/?\s*quote\b[^>]*>/gi, "")
+      .replace(/<quote\b[^>]*>?/gi, "")
+      .replace(/<\|\/?[^|>]+\|>/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+  }
+
+  function gridScore(cells) {
+    if (!cells || !cells.length) return 0;
+    let cols = 0;
+    for (const row of cells) cols = Math.max(cols, (row || []).length);
+    const headerW = (cells[0] || []).length;
+    let rect = 0;
+    for (const row of cells) {
+      if ((row || []).length === headerW) rect += 10;
+    }
+    return cells.length * 100 + cols + rect;
+  }
+
+  function colMatchScore(n, target) {
+    if (!target || target <= 0) return n;
+    if (n === target) return 10000 + n;
+    if (n < target) return 100 * n;
+    return 100 * target - 10 * (n - target);
+  }
+
+  /** School/schedule tokens for splitting jammed Chinese like "语文数学". */
+  const CJK_TOKENS = [
+    "信息技术",
+    "及格率",
+    "语文",
+    "数学",
+    "英语",
+    "物理",
+    "化学",
+    "生物",
+    "历史",
+    "地理",
+    "政治",
+    "体育",
+    "音乐",
+    "美术",
+    "品德",
+    "科学",
+    "综合",
+    "科目",
+    "姓名",
+    "序号",
+    "分数",
+    "成绩",
+    "平均",
+    "最高",
+    "最低",
+    "周一",
+    "周二",
+    "周三",
+    "周四",
+    "周五",
+    "周六",
+    "周日",
+    "星期",
+    "节次",
+    "时间",
+    "课程",
+    "教室",
+    "商品",
+    "数量",
+    "单价",
+    "金额",
+    "区域",
+    "总位",
+    "占用",
+    "空闲",
+  ].sort((a, b) => b.length - a.length);
+
+  /** Greedy-split jammed CJK compounds: 语文数学 → ["语文","数学"]. */
+  function splitJammedCjk(text, targetCols) {
+    const s = String(text || "").trim();
+    if (!s) return [""];
+    if (s.includes("|") || /\s/.test(s)) return [s];
+    if (/[\u2800-\u283F]/.test(s)) return [s];
+    if (!/^[\u4e00-\u9fff\d]+$/.test(s)) return [s];
+    const parts = [];
+    let rest = s;
+    const dm = rest.match(/^(\d+)([\u4e00-\u9fff].*)$/);
+    if (dm) {
+      parts.push(dm[1]);
+      rest = dm[2];
+    }
+    let i = 0;
+    while (i < rest.length) {
+      if (targetCols && parts.length >= targetCols) {
+        parts[parts.length - 1] = parts[parts.length - 1] + rest.slice(i);
+        break;
+      }
+      let matched = false;
+      for (const tok of CJK_TOKENS) {
+        if (rest.startsWith(tok, i)) {
+          parts.push(tok);
+          i += tok.length;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+      if (
+        i + 2 <= rest.length &&
+        /^[\u4e00-\u9fff]{2}/.test(rest.slice(i))
+      ) {
+        parts.push(rest.slice(i, i + 2));
+        i += 2;
+        continue;
+      }
+      if (parts.length) parts[parts.length - 1] += rest.slice(i);
+      else parts.push(rest.slice(i));
+      break;
+    }
+    if (targetCols && targetCols > 0 && parts.length > targetCols) {
+      return parts
+        .slice(0, targetCols - 1)
+        .concat([parts.slice(targetCols - 1).join("")]);
+    }
+    return parts.length > 1 ? parts : [s];
+  }
+
+  /** Chinese/ASCII jammed data (spaces, digit+CJK, or lexicon compounds). */
+  function looksLikeJammedZhData(s) {
+    const t = String(s || "");
+    if (!t || /[\u2800-\u283F]/.test(t)) return false;
+    if (t.includes("|")) return false;
+    if (/\s/.test(t)) return true;
+    // e.g. "1语文" — leading digits glued to CJK with no space
+    if (/^\d+[\u4e00-\u9fff]/.test(t)) return true;
+    // e.g. "语文数学" — no spaces but lexicon-splittable
+    if (/^[\u4e00-\u9fff]{4,}$/.test(t) && splitJammedCjk(t).length > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Tokenize a Chinese/ASCII data blob:
+   * - whitespace → tokens
+   * - leading digits glued to CJK: "1语文" → ["1","语文"]
+   * - jammed compounds: "语文数学" → ["语文","数学"]
+   * Leaves braille untouched.
+   */
+  function tokenizeZhDataBlob(text, targetCols) {
+    const s = String(text || "").trim();
+    if (!s) return [""];
+    if (/[\u2800-\u283F]/.test(s)) return [s];
+    if (/\s/.test(s) || /^\d+[\u4e00-\u9fff]/.test(s)) {
+      const rough = s.split(/\s+/).filter((c) => c !== "");
+      const out = [];
+      for (const tok of rough) {
+        const m = tok.match(/^(\d+)([\u4e00-\u9fff].*)$/);
+        if (m) {
+          out.push(m[1]);
+          const rest = splitJammedCjk(m[2], targetCols);
+          for (const x of rest) out.push(x);
+        } else if (/^[\u4e00-\u9fff]{4,}$/.test(tok)) {
+          const parts = splitJammedCjk(tok, targetCols);
+          for (const x of parts) out.push(x);
+        } else {
+          out.push(tok);
+        }
+      }
+      return out.length ? out : [s];
+    }
+    if (/^[\u4e00-\u9fff\d]+$/.test(s)) {
+      const parts = splitJammedCjk(s, targetCols);
+      if (parts.length > 1) return parts;
+    }
+    return [s];
+  }
+
+  /** Expand jammed Chinese tokens inside an already pipe-split cell list.
+   *  Trailing empty pads are dropped before expand, then caller normalizes width.
+   *  So ["1语文","数学","","…"] → ["1","语文","数学"] (not length-8 with pads).
+   */
+  function expandZhTokensInCells(cells, targetCols) {
+    const raw = (cells || []).map((c) => String(c || ""));
+    // Drop trailing empties so expanding "1语文" does not fight pad length==width.
+    let end = raw.length;
+    while (end > 0 && !String(raw[end - 1] || "").trim()) end--;
+    const core = raw.slice(0, end);
+    const out = [];
+    let didExpand = false;
+    for (const c of core) {
+      const t = String(c || "").trim();
+      if (!t) {
+        out.push("");
+        continue;
+      }
+      if (/[\u2800-\u283F]/.test(t) || t.includes("|")) {
+        out.push(t);
+        continue;
+      }
+      if (looksLikeJammedZhData(t)) {
+        const toks = tokenizeZhDataBlob(t, targetCols);
+        if (toks.length > 1) {
+          for (const x of toks) out.push(x);
+          didExpand = true;
+          continue;
+        }
+      }
+      out.push(t);
+    }
+    if (!didExpand && out.length === core.length) {
+      return cells;
+    }
+    // Prefer expansion when it moves closer to targetCols (or any expand without target).
+    if (
+      targetCols &&
+      colMatchScore(out.length, targetCols) <
+        colMatchScore(core.length, targetCols) &&
+      colMatchScore(out.length, targetCols) <
+        colMatchScore((cells || []).length, targetCols)
+    ) {
+      return cells;
+    }
+    return out;
+  }
+
+
+  function stripCellEdgePipes(cell) {
+    let t = String(cell || "").trim();
+    if (t.startsWith("|")) t = t.replace(/^\|+/, "").trim();
+    if (t.endsWith("|")) t = t.replace(/\|+$/, "").trim();
+    return t;
+  }
+
+  /** Drop empty leading/trailing cells from markdown ``| a | b |`` / ``|a|b|``. */
+  function trimMarkdownPipeBorders(cells) {
+    if (!cells || !cells.length) return cells;
+    let out = cells.map(stripCellEdgePipes);
+    while (out.length && out[0] === "") out.shift();
+    while (out.length && out[out.length - 1] === "") out.pop();
+    return out.length ? out : [""];
+  }
+
+  function isMarkdownSeparatorRow(cells) {
+    if (!cells || !cells.length) return false;
+    let saw = false;
+    for (const c of cells) {
+      let s = String(c || "").trim().replace(/^\|+|\|+$/g, "").trim();
+      if (!s) continue;
+      saw = true;
+      if (!/^:?-{3,}:?$/.test(s)) return false;
+    }
+    return saw;
+  }
+
+  function splitRowPart(part, targetCols) {
+    const p = String(part || "").trim();
+    if (!p) return [""];
+    const hasPipe = p.includes("|");
+    let pipeCells;
+    if (p.includes(CELL_SEP)) {
+      pipeCells = p.split(CELL_SEP).map((c) => c.trim());
+    } else if (hasPipe) {
+      pipeCells = p.split("|").map((c) => c.trim());
+    } else {
+      pipeCells = [p];
+    }
+    if (hasPipe) {
+      pipeCells = trimMarkdownPipeBorders(pipeCells);
+    }
+    // Keep pipe splits by default — braille cells often contain internal spaces.
+    if (hasPipe) {
+      if (!targetCols || pipeCells.length >= targetCols) {
+        // Still expand digit+CJK inside each pipe cell when under/equal width.
+        const expanded = expandZhTokensInCells(pipeCells, targetCols);
+        if (
+          !targetCols ||
+          colMatchScore(expanded.length, targetCols) >=
+            colMatchScore(pipeCells.length, targetCols)
+        ) {
+          return expanded;
+        }
+        return pipeCells;
+      }
+      const expanded = expandZhTokensInCells(pipeCells, targetCols);
+      if (
+        colMatchScore(expanded.length, targetCols) >
+        colMatchScore(pipeCells.length, targetCols)
+      ) {
+        return expanded;
+      }
+      if (pipeCells.length === 1 && looksLikeJammedZhData(pipeCells[0] || "")) {
+        const wsOne = tokenizeZhDataBlob(pipeCells[0], targetCols);
+        if (
+          wsOne.length &&
+          colMatchScore(wsOne.length, targetCols) >
+            colMatchScore(pipeCells.length, targetCols)
+        ) {
+          return wsOne;
+        }
+      }
+      return pipeCells;
+    }
+    // No pipes: whitespace + digit/CJK jam split for Chinese/ASCII data rows.
+    if (looksLikeJammedZhData(p)) {
+      const toks = tokenizeZhDataBlob(p, targetCols);
+      if (toks.length > 1) {
+        if (
+          !targetCols ||
+          colMatchScore(toks.length, targetCols) >
+            colMatchScore(pipeCells.length, targetCols)
+        ) {
+          return toks;
+        }
+      }
+    }
+    return pipeCells;
+  }
+
+  function normalizeGrid(cells, width) {
+    if (!cells || !cells.length) return [];
+    const rows = cells.map((row) => (row || []).map((c) => sanitizeCell(c)));
+    let w = width;
+    if (!w || w <= 0) {
+      w = rows[0].length || Math.max(...rows.map((r) => r.length), 0);
+    }
+    if (!w || w <= 0) return rows;
+    return rows.map((row) => {
+      if (row.length < w) return row.concat(Array(w - row.length).fill(""));
+      return row.slice(0, w);
+    });
+  }
+
+  /** Split any cell whose text contains `|` into multiple cells on that row. */
+  function expandPipeInRow(row) {
+    const raw = row || [];
+    const nonempty = [];
+    for (let j = 0; j < raw.length; j++) {
+      const s = sanitizeCell(raw[j]);
+      if (s) nonempty.push([j, s]);
+    }
+    // Common bug: one pipe-joined header blob + empty pads from align-to-width.
+    if (nonempty.length === 1 && nonempty[0][1].includes("|")) {
+      const blob = nonempty[0][1];
+      const parts = blob.includes(CELL_SEP)
+        ? blob.split(CELL_SEP)
+        : blob.split("|");
+      return parts.map((c) => sanitizeCell(c));
+    }
+    // One jammed Chinese/ASCII blob + empty pads → collapse so later split can run.
+    if (
+      nonempty.length === 1 &&
+      looksLikeJammedZhData(nonempty[0][1] || "") &&
+      raw.length > 1
+    ) {
+      return [nonempty[0][1]];
+    }
+    const out = [];
+    for (const cell of raw) {
+      const s = sanitizeCell(cell);
+      if (s.includes("|")) {
+        const parts = s.includes(CELL_SEP) ? s.split(CELL_SEP) : s.split("|");
+        for (const p of parts) out.push(sanitizeCell(p));
+      } else if (looksLikeJammedZhData(s)) {
+        const toks = tokenizeZhDataBlob(s);
+        if (toks.length > 1) {
+          for (const t of toks) out.push(sanitizeCell(t));
+        } else {
+          out.push(s);
+        }
+      } else {
+        out.push(s);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Normalize pass: expand pipe-joined cells, then whitespace-split short
+   * data rows so the grid matches header width (e.g. 7 columns).
+   */
+  function expandPipeInGrid(cells, preferWidth) {
+    if (!cells || !cells.length) return [];
+    let rows = cells.map((row) => expandPipeInRow(row));
+    let width =
+      (preferWidth && preferWidth > 0 ? preferWidth : 0) ||
+      Math.max(...rows.map((r) => r.length), 0);
+    // Header row with pipes establishes width when preferWidth missing/short.
+    if (rows[0] && rows[0].length > width) width = rows[0].length;
+    for (let i = 0; i < rows.length; i++) {
+      let row = rows[i];
+      if (row.length >= width && width > 0) {
+        rows[i] = row.slice(0, width);
+        continue;
+      }
+      if (row.length === 1 && looksLikeJammedZhData(row[0] || "")) {
+        const ws = splitRowPart(row[0], width || undefined);
+        if (
+          !width ||
+          colMatchScore(ws.length, width) > colMatchScore(row.length, width)
+        ) {
+          row = ws.map((c) => sanitizeCell(c));
+          if (row.length > width) width = row.length;
+        }
+      } else if (width && row.length < width) {
+        // e.g. ["1语文","数学","","..."] → ["1","语文","数学",...]
+        const expanded = expandZhTokensInCells(row, width);
+        if (
+          colMatchScore(expanded.length, width) >
+          colMatchScore(row.length, width)
+        ) {
+          row = expanded.map((c) => sanitizeCell(c));
+          if (row.length > width) width = row.length;
+        }
+      }
+      rows[i] = row;
+    }
+    width = Math.max(width, ...rows.map((r) => r.length), 0);
+    return normalizeGrid(rows, width);
+  }
+
+  function parseFlat(text, targetCols) {
+    let raw = (text || "").trim();
+    if (!raw) return [];
+    raw = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    // Normalize row separators: || without spaces, or newlines as rows
+    if (!raw.includes(ROW_SEP)) {
+      if (raw.includes("||")) {
+        raw = raw.split("||").map((p) => p.trim()).join(ROW_SEP);
+      } else if (raw.includes("\n")) {
+        raw = raw
+          .split("\n")
+          .map((p) => p.trim())
+          .filter((p) => p !== "")
+          .join(ROW_SEP);
+      }
+    }
+    const rows = [];
+    for (const rowPart of raw.split(ROW_SEP)) {
+      const part = rowPart.trim();
+      const rowTarget = targetCols || (rows.length ? rows[0].length : undefined);
+      let cells = splitRowPart(part, rowTarget);
+      if (cells.length === 1 && cells[0] === "" && !rows.length) continue;
+      if (isMarkdownSeparatorRow(cells)) continue;
+      rows.push(cells.map(sanitizeCell));
+    }
+    if (!rows.length) return [];
+    const width = targetCols && targetCols > 0 ? targetCols : rows[0].length;
+    if (width > 1) {
+      const fixed = [rows[0]];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.length >= width) {
+          fixed.push(row.slice(0, width));
+          continue;
+        }
+        if (row.length === 1 && /\s/.test(row[0] || "")) {
+          const ws = splitRowPart(row[0], width);
+          if (colMatchScore(ws.length, width) > colMatchScore(row.length, width)) {
+            fixed.push(ws);
+            continue;
+          }
+        }
+        fixed.push(row);
+      }
+      return normalizeGrid(fixed, width);
+    }
+    return normalizeGrid(rows, width);
+  }
+
+  function cellsToMarkdown(cells) {
+    if (!cells.length) return "";
+    const width = Math.max(...cells.map((r) => r.length));
+    const norm = cells.map((r) => {
+      const row = r.slice();
+      while (row.length < width) row.push("");
+      return row;
+    });
+    const lines = [
+      "| " + norm[0].join(" | ") + " |",
+      "| " + norm[0].map(() => "---").join(" | ") + " |",
+    ];
+    for (let i = 1; i < norm.length; i++) {
+      lines.push("| " + norm[i].join(" | ") + " |");
+    }
+    return lines.join("\n");
+  }
+
+  function cellsToCsvClient(cells) {
+    return cells
+      .map((row) =>
+        row
+          .map((c) => {
+            const s = String(c ?? "");
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+          })
+          .join(",")
+      )
+      .join("\n");
+  }
+
+  function cellsToFlat(cells) {
+    return cells.map((row) => row.map((c) => String(c ?? "")).join(CELL_SEP)).join(ROW_SEP);
+  }
+
+  function clearInputTable() {
+    inputCells = [];
+    if (inputTableOut) inputTableOut.innerHTML = "";
+    if (inputTableWrap) inputTableWrap.classList.add("hidden");
+  }
+
+  function renderInputTable(cells) {
+    if (!inputTableOut || !inputTableWrap) return;
+    inputCells = cells.map((row) => row.map((c) => String(c ?? "")));
+    if (!inputCells.length || inputTableCollapsed) {
+      if (!inputCells.length) inputTableWrap.classList.add("hidden");
+      return;
+    }
+    const parts = ['<table class="cbt-table cbt-input-table"><tbody>'];
+    inputCells.forEach((row, i) => {
+      parts.push("<tr>");
+      row.forEach((c, j) => {
+        const esc = String(c)
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        parts.push(
+          "<td><input class=\"cbt-input-cell\" data-r=\"" +
+            i +
+            "\" data-c=\"" +
+            j +
+            "\" type=\"text\" value=\"" +
+            esc +
+            "\" spellcheck=\"false\" /></td>"
+        );
+      });
+      parts.push("</tr>");
+    });
+    parts.push("</tbody></table>");
+    inputTableOut.innerHTML = parts.join("");
+    inputTableWrap.classList.remove("hidden");
+
+    inputTableOut.querySelectorAll(".cbt-input-cell").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const r = Number(inp.getAttribute("data-r"));
+        const c = Number(inp.getAttribute("data-c"));
+        if (!inputCells[r]) return;
+        inputCells[r][c] = inp.value;
+        syncingFromInputTable = true;
+        brailleEl.value = cellsToFlat(inputCells);
+        syncingFromInputTable = false;
+        if (asTableEl) asTableEl.checked = true;
+      });
+    });
+  }
+
+  function refreshInputTableFromTextarea() {
+    if (syncingFromInputTable) return;
+    const text = brailleEl.value || "";
+    if (!isFlatTable(text)) {
+      clearInputTable();
+      return;
+    }
+    if (asTableEl) asTableEl.checked = true;
+    inputTableCollapsed = false;
+    const cells = parseFlat(text);
+    // Avoid rebuild if same shape+content (keeps focus while typing in textarea)
+    const flatNow = cellsToFlat(cells);
+    const flatPrev = cellsToFlat(inputCells);
+    if (flatNow === flatPrev && inputTableWrap && !inputTableWrap.classList.contains("hidden")) {
+      return;
+    }
+    renderInputTable(cells);
   }
 
   function clearTable() {
@@ -144,8 +781,6 @@
   }
 
   function ensureCellAttrsFromCells() {
-    // If server HTML lacked data-r/c (old process), rebuild from cells array.
-    if (tableOut.querySelector(".cbt-cell[data-r]")) return;
     if (!tableCells.length) return;
     const parts = ['<table class="cbt-table">'];
     tableCells.forEach((row, i) => {
@@ -178,20 +813,152 @@
     tableOut.innerHTML = parts.join("\n");
   }
 
-  function showTable(table) {
-    if (!table || (!table.html && !(table.cells && table.cells.length))) {
+  function shapeKey(cells) {
+    if (!cells || !cells.length) return "";
+    return cells.map((r) => (r || []).length).join(",");
+  }
+
+  /** Force grid to the exact rows/cols of the input preview (pad/truncate only).
+   *  Never expand pipes / lexicon-split / whitespace-resplit — that breaks shape.
+   */
+  function alignToInputShape(sourceCells, shapeCells) {
+    if (!shapeCells || !shapeCells.length) {
+      return expandPipeInGrid(sourceCells || []);
+    }
+    const out = [];
+    for (let i = 0; i < shapeCells.length; i++) {
+      const shapeRow = shapeCells[i] || [];
+      const srcRow = (sourceCells && sourceCells[i]) || [];
+      const row = [];
+      for (let j = 0; j < shapeRow.length; j++) {
+        row.push(srcRow[j] !== undefined ? sanitizeCell(srcRow[j]) : "");
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  function repairShortRows(cells, targetWidth) {
+    if (!cells || !cells.length) return cells;
+    const width = targetWidth || (cells[0] || []).length;
+    if (!width) return cells;
+    const out = [];
+    for (let i = 0; i < cells.length; i++) {
+      let row = (cells[i] || []).map((c) => sanitizeCell(c));
+      while (row.length < width) row.push("");
+      const nonempty = [];
+      for (let j = 0; j < row.length; j++) {
+        if (String(row[j] || "").trim()) nonempty.push([j, row[j]]);
+      }
+      let blobIdx = null;
+      let blobText = "";
+      if (nonempty.length === 1 && looksLikeJammedZhData(nonempty[0][1] || "")) {
+        blobIdx = nonempty[0][0];
+        blobText = nonempty[0][1];
+      } else if (row.length === 1 && looksLikeJammedZhData(row[0] || "")) {
+        blobIdx = 0;
+        blobText = row[0];
+      }
+      if (blobIdx !== null) {
+        let ws = splitRowPart(blobText, width);
+        if (ws.length <= 1 && looksLikeJammedZhData(blobText)) {
+          const cjk = splitJammedCjk(blobText, width);
+          if (colMatchScore(cjk.length, width) > colMatchScore(ws.length, width)) {
+            ws = cjk;
+          }
+        }
+        if (
+          colMatchScore(ws.length, width) >
+          colMatchScore(nonempty.length || row.length, width)
+        ) {
+          const newRow = row.slice();
+          while (newRow.length < width) newRow.push("");
+          for (let k = blobIdx; k < Math.min(width, blobIdx + Math.max(ws.length, 1)); k++) {
+            newRow[k] = "";
+          }
+          for (let k = 0; k < ws.length; k++) {
+            const pos = blobIdx + k;
+            if (pos >= width) break;
+            newRow[pos] = sanitizeCell(ws[k]);
+          }
+          row = newRow;
+        }
+      } else {
+        const expanded = expandZhTokensInCells(row, width);
+        if (
+          colMatchScore(expanded.length, width) >
+          colMatchScore(row.length, width)
+        ) {
+          row = expanded;
+        }
+      }
+      out.push(row);
+    }
+    return normalizeGrid(out, width);
+  }
+
+  function showTable(table, textFallback) {
+    // Restore grid priority (strict):
+    // 1) If input preview grid exists → ALWAYS mirror its exact shape.
+    //    Each cell = that cell's translation only. NO pipe expand, NO
+    //    lexicon/whitespace re-split (those heuristics break 2x2 / NxM).
+    // 2) Else prefer API cells; fallback parse(汉字) only when API empty/worse
+    //    (heuristics allowed only when input shape is unknown).
+    stopSpeak();
+    let apiCells = [];
+    if (table && Array.isArray(table.cells) && table.cells.length) {
+      apiCells = table.cells.map((row) =>
+        Array.isArray(row) ? row.map((c) => sanitizeCell(c)) : []
+      );
+    }
+    const text =
+      textFallback ||
+      (table && table.flat_zh) ||
+      (resultEl && resultEl.value) ||
+      "";
+    const preferWidth =
+      (inputCells.length && (inputCells[0] || []).length) ||
+      (apiCells.length && (apiCells[0] || []).length) ||
+      undefined;
+    const fromText = parseFlat(text, preferWidth);
+    let cells = [];
+
+    if (inputCells.length) {
+      const src = apiCells.length ? apiCells : fromText;
+      if (!src.length) {
+        clearTable();
+        return;
+      }
+      // Strict 1:1 with input preview — no expand / repair.
+      cells = alignToInputShape(src, inputCells);
+    } else if (apiCells.length) {
+      // Input shape unknown: heuristics OK to recover pipe/whitespace tables.
+      cells = expandPipeInGrid(apiCells);
+      cells = repairShortRows(cells, (cells[0] || []).length);
+      if (fromText.length && gridScore(fromText) > gridScore(cells)) {
+        cells = expandPipeInGrid(fromText);
+        cells = repairShortRows(cells, (cells[0] || []).length);
+      }
+    } else if (fromText.length) {
+      cells = expandPipeInGrid(fromText);
+      cells = repairShortRows(cells, (cells[0] || []).length);
+    } else {
       clearTable();
       return;
     }
-    stopSpeak();
+
+    // Keep 汉字结果 identical to the restored grid (same rows/cols & separators).
+    if (resultEl && cells.length) {
+      resultEl.value = cellsToFlat(cells);
+    }
+
     tableWrap.classList.remove("hidden");
-    tableCells = Array.isArray(table.cells)
-      ? table.cells.map((row) => (Array.isArray(row) ? row.map((c) => String(c ?? "")) : []))
-      : [];
-    tableOut.innerHTML = table.html || "";
+    tableCells = cells;
+    // Always rebuild HTML from cells (never trust raw html with leaked tags).
+    tableOut.innerHTML = "";
     ensureCellAttrsFromCells();
-    mdOut.value = table.markdown || "";
-    csvOut.value = table.csv || "";
+    mdOut.value = cellsToMarkdown(cells);
+    csvOut.value = cellsToCsvClient(cells);
     bindTableEvents();
     selR = -1;
     selC = -1;
@@ -274,7 +1041,7 @@
       return;
     }
     const row = tableCells[selR] || [];
-    const parts = row.map((c, j) => {
+    const parts = row.map((c) => {
       const t = String(c || "").trim() || "空";
       return t;
     });
@@ -332,6 +1099,11 @@
     }
   }
 
+  function shouldUseTable(braille) {
+    if (isFlatTable(braille)) return true;
+    return !!(asTableEl && asTableEl.checked);
+  }
+
   async function doTranslate() {
     const braille = (brailleEl.value || "").trim();
     if (!braille) {
@@ -340,17 +1112,58 @@
       return;
     }
     btn.disabled = true;
-    metaEl.textContent = "翻译中…（首次加载模型可能需要数十秒）";
     resultEl.value = "";
     clearTable();
+    let progressTimer = null;
+    const t0 = performance.now();
     try {
+      const tabular = isFlatTable(braille);
+      if (tabular && asTableEl) asTableEl.checked = true;
+      const asTable = shouldUseTable(braille);
+      let cellCount = 0;
+      const gridForCount =
+        asTable && inputCells.length
+          ? inputCells
+          : null;
+      if (gridForCount) {
+        for (const row of gridForCount) {
+          for (const c of row || []) {
+            if (String(c || "").trim()) cellCount++;
+          }
+        }
+      }
       const payload = {
         braille,
         backend: backendEl.value || "qwen8b",
-        as_table: !!asTableEl.checked,
+        as_table: asTable,
+        max_new_tokens: asTable ? 32 : 128,
       };
       const ctx = (contextEl.value || "").trim();
       if (ctx) payload.context = ctx;
+      // Prefer the editable input-grid shape so output rows/cols match.
+      if (
+        asTable &&
+        inputCells.length &&
+        inputCells.some((row) => (row || []).some((c) => String(c || "").trim()))
+      ) {
+        payload.cells = inputCells.map((row) =>
+          (row || []).map((c) => String(c ?? ""))
+        );
+      }
+
+      const tick = () => {
+        const sec = ((performance.now() - t0) / 1000).toFixed(1);
+        if (asTable && cellCount > 0) {
+          metaEl.textContent =
+            "翻译中… 已等待 " + sec + " 秒 · 约 " + cellCount +
+            " 格（批量推理；首次冷启动可能数十秒）";
+        } else {
+          metaEl.textContent =
+            "翻译中… 已等待 " + sec + " 秒（首次加载模型可能需要数十秒）";
+        }
+      };
+      tick();
+      progressTimer = setInterval(tick, 250);
 
       const res = await fetch("/v1/translate", {
         method: "POST",
@@ -363,16 +1176,17 @@
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
       resultEl.value = data.text || "";
-      showTable(data.table);
+      showTable(data.table, data.text || "");
       metaEl.textContent =
         "后端: " + (data.backend || "?") + " · 耗时 " + (data.elapsed_s ?? "?") + " 秒" +
-        (data.table ? " · 已还原表格" : "");
+        (data.table ? " · 已按表格对应输出" : asTable ? " · 未返回表格" : "");
       refreshHealth();
     } catch (err) {
       resultEl.value = "";
       metaEl.textContent = "错误: " + err.message;
       setStatus("翻译失败: " + err.message, "err");
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       btn.disabled = false;
     }
   }
@@ -385,14 +1199,23 @@
       return;
     }
     btnPipeline.disabled = true;
-    metaEl.textContent = "识别并翻译中…（OCR + 首次加载模型可能较慢）";
     resultEl.value = "";
     clearTable();
+    let progressTimer = null;
+    const t0 = performance.now();
+    progressTimer = setInterval(() => {
+      const sec = ((performance.now() - t0) / 1000).toFixed(1);
+      metaEl.textContent =
+        "识别并翻译中… 已等待 " + sec + " 秒（OCR + 模型；冷启动可能较慢）";
+    }, 250);
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("backend", backendEl.value || "qwen8b");
-      fd.append("as_table", asTableEl.checked ? "true" : "false");
+      // Prefer table mode for pipeline (OCR tables)
+      const asTable = asTableEl.checked || true;
+      if (asTableEl) asTableEl.checked = true;
+      fd.append("as_table", asTable ? "true" : "false");
       const ctx = (contextEl.value || "").trim();
       if (ctx) fd.append("context", ctx);
 
@@ -402,31 +1225,66 @@
         const detail = data.detail || res.statusText || "请求失败";
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
-      if (data.braille) brailleEl.value = data.braille;
+      if (data.braille) {
+        brailleEl.value = data.braille;
+        refreshInputTableFromTextarea();
+      } else {
+        metaEl.textContent =
+          "OCR 未识别到盲文。若是网页 Unicode 表格截图请刷新后再试；" +
+          "凸起点阵请用清晰实心圆点图。也可直接粘贴盲文到上方输入框。";
+        setStatus("OCR 结果为空", "err");
+      }
       resultEl.value = data.text || "";
-      showTable(data.table);
-      metaEl.textContent =
-        "OCR: " + (data.ocr_method || "?") +
-        " · 置信 " + (data.confidence ?? "?") +
-        " · 后端: " + (data.backend || "?") +
-        " · 耗时 " + (data.elapsed_s ?? "?") + " 秒";
+      showTable(data.table, data.text || "");
+      if (data.braille) {
+        metaEl.textContent =
+          "OCR: " + (data.ocr_method || "?") +
+          " · 置信 " + (data.confidence ?? "?") +
+          " · 后端: " + (data.backend || "?") +
+          " · 耗时 " + (data.elapsed_s ?? "?") + " 秒";
+      }
       refreshHealth();
     } catch (err) {
       resultEl.value = "";
       metaEl.textContent = "错误: " + err.message;
       setStatus("识别失败: " + err.message, "err");
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       btnPipeline.disabled = false;
     }
   }
 
   document.querySelectorAll(".chip").forEach((el) => {
     el.addEventListener("click", () => {
-      brailleEl.value = el.getAttribute("data-br") || "";
       contextEl.value = el.getAttribute("data-ctx") || "";
-      if (el.getAttribute("data-table") === "1") asTableEl.checked = true;
       resultEl.value = "";
+      const sampleId = el.getAttribute("data-sample");
+      if (sampleId && SAMPLE_TABLES[sampleId]) {
+        loadSampleGrid(SAMPLE_TABLES[sampleId], el.textContent.trim());
+        return;
+      }
+      // Fallback: data-cells JSON (exact 2-D) — still never parseFlat for tables.
+      const cellsRaw = el.getAttribute("data-cells");
+      if (cellsRaw) {
+        try {
+          const grid = JSON.parse(cellsRaw);
+          if (Array.isArray(grid) && grid.length && Array.isArray(grid[0])) {
+            loadSampleGrid(grid, el.textContent.trim());
+            return;
+          }
+        } catch (err) {
+          console.warn("data-cells JSON parse failed", err);
+        }
+      }
+      // Single-cell / non-table chips only.
       clearTable();
+      clearInputTable();
+      inputTableCollapsed = false;
+      brailleEl.value = el.getAttribute("data-br") || "";
+      if (el.getAttribute("data-table") === "1" || isFlatTable(brailleEl.value)) {
+        if (asTableEl) asTableEl.checked = true;
+        refreshInputTableFromTextarea();
+      }
       metaEl.textContent = "已填入样例「" + el.textContent + "」，可点翻译。";
     });
   });
@@ -440,7 +1298,24 @@
     metaEl.textContent = "";
     imageFile.value = "";
     clearTable();
+    clearInputTable();
+    inputTableCollapsed = false;
     brailleEl.focus();
+  });
+
+  if (btnHideInputTable) {
+    btnHideInputTable.addEventListener("click", () => {
+      inputTableCollapsed = true;
+      if (inputTableWrap) inputTableWrap.classList.add("hidden");
+    });
+  }
+
+  brailleEl.addEventListener("input", () => {
+    refreshInputTableFromTextarea();
+  });
+  brailleEl.addEventListener("paste", () => {
+    // After paste content lands in textarea
+    setTimeout(refreshInputTableFromTextarea, 0);
   });
 
   if (btnJump) btnJump.addEventListener("click", doJump);
@@ -457,4 +1332,5 @@
   });
 
   refreshHealth();
+  refreshInputTableFromTextarea();
 })();

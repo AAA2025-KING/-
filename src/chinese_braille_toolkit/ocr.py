@@ -409,13 +409,275 @@ def _opencv_detect(image: PathLike | Any) -> dict[str, Any]:
     }
 
 
-def _unicode_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
-    """If the image is mostly a screenshot of Unicode braille glyphs, extract them.
+def _load_bgr(image: PathLike | Any, cv2: Any, np: Any) -> Any:
+    """Load BGR ndarray from path / PIL / ndarray."""
+    if hasattr(image, "shape"):
+        arr = np.asarray(image)
+        if arr.ndim == 2:
+            return cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+        if arr.shape[2] >= 3:
+            # assume RGB if from PIL-ish; callers pass BGR from cv2 usually
+            return arr[:, :, :3].copy()
+        return cv2.cvtColor(arr[:, :, 0], cv2.COLOR_GRAY2BGR)
+    if hasattr(image, "convert"):
+        from PIL import Image
 
-    Tries: (1) pytesseract OCR for braille-range chars, (2) Pillow + connected
-    components of dark glyphs paired with a simple font raster match — if neither
-    works, returns None.
+        rgb = np.array(image.convert("RGB"))
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    path = Path(image)
+    if not path.is_file():
+        raise FileNotFoundError(f"image not found: {path}")
+    data = np.fromfile(str(path), dtype=np.uint8)
+    bgr = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if bgr is None:
+        from PIL import Image
+
+        rgb = np.array(Image.open(path).convert("RGB"))
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    return bgr
+
+
+def _line_centers(mask: Any, axis: int, np: Any) -> list[int]:
+    """Return centers of thick runs along projection of ``mask``."""
+    proj = mask.sum(axis=1).astype(float) if axis == 0 else mask.sum(axis=0).astype(float)
+    if float(proj.max()) <= 0:
+        return []
+    thr = float(proj.max()) * 0.3
+    idxs = np.where(proj >= thr)[0]
+    if len(idxs) == 0:
+        return []
+    groups: list[tuple[int, int]] = []
+    start = int(idxs[0])
+    prev = int(idxs[0])
+    for i in idxs[1:]:
+        i = int(i)
+        if i - prev > 2:
+            groups.append((start, prev))
+            start = i
+        prev = i
+    groups.append((start, prev))
+    return [int((a + b) // 2) for a, b in groups]
+
+
+def _cluster_1d(vals: list[float], idxs: list[int], tol: float) -> list[list[int]]:
+    order = sorted(idxs, key=lambda i: vals[i])
+    groups: list[list[int]] = []
+    for i in order:
+        if not groups or abs(vals[i] - vals[groups[-1][0]]) > tol:
+            groups.append([i])
+        else:
+            groups[-1].append(i)
+    return groups
+
+
+def _global_dot_pitch(
+    dots: list[tuple[float, float]],
+    *,
+    horiz: bool,
+    np: Any,
+    max_orth: float = 16.0,
+) -> float:
+    pitches: list[float] = []
+    for i, (x, y) in enumerate(dots):
+        best = 1e18
+        for j, (x2, y2) in enumerate(dots):
+            if i == j:
+                continue
+            dx, dy = abs(x2 - x), abs(y2 - y)
+            if horiz:
+                if dx > 1.5 and dy < max_orth and dx < best:
+                    best = dx
+            else:
+                if dy > 1.5 and dx < max_orth and dy < best:
+                    best = dy
+        if best < 1e17:
+            pitches.append(float(best))
+    if not pitches:
+        return 6.0
+    m = float(np.percentile(pitches, 15))
+    small = [p for p in pitches if p <= m * 1.6]
+    return float(np.median(small if small else pitches[: max(1, len(pitches) // 5)]))
+
+
+def _decode_digital_cell(
+    cell_dots: list[tuple[float, float]],
+    pitch_x: float,
+    pitch_y: float,
+    np: Any,
+) -> str:
+    """Decode one table-cell of font-rendered braille dots to Unicode (+ spaces)."""
+    if not cell_dots:
+        return ""
+    xs_ = [d[0] for d in cell_dots]
+    ys_ = [d[1] for d in cell_dots]
+    y0, y1 = min(ys_), max(ys_)
+    span = y1 - y0
+    if span > pitch_y * 1.4:
+        fine_y = [y0, y0 + span / 2.0, y1]
+    else:
+        fine_y = [y0 - pitch_y, y0, y0 + pitch_y]
+
+    col_groups = _cluster_1d(xs_, list(range(len(cell_dots))), pitch_x * 0.5)
+    col_xs = [float(np.mean([xs_[k] for k in g])) for g in col_groups]
+    if len(col_xs) >= 2:
+        gaps = [col_xs[i + 1] - col_xs[i] for i in range(len(col_xs) - 1)]
+        sg = sorted(gaps)
+        low = sg[: max(1, (len(sg) + 1) // 2)]
+        within = min(sum(low) / len(low), pitch_x * 1.3)
+        pair_thresh = within * 1.75
+    else:
+        pair_thresh = pitch_x * 1.75
+
+    chars_cols: list[list[int]] = []
+    j = 0
+    while j < len(col_groups):
+        if j + 1 < len(col_groups) and (col_xs[j + 1] - col_xs[j]) <= pair_thresh:
+            chars_cols.append([j, j + 1])
+            j += 2
+        else:
+            chars_cols.append([j])
+            j += 1
+
+    out_chars: list[str] = []
+    for ccols in chars_cols:
+        idxs = [k for c in ccols for k in col_groups[c]]
+        bit = 0
+        cxs = [col_xs[c] for c in ccols]
+        for k in idxs:
+            row_i = int(np.argmin([abs(ys_[k] - fy) for fy in fine_y]))
+            if len(ccols) == 1:
+                col_i = 0
+            else:
+                col_i = 0 if abs(xs_[k] - cxs[0]) <= abs(xs_[k] - cxs[1]) else 1
+            bit |= _DOT_BITS.get((row_i, col_i), 0)
+        out_chars.append(chr(0x2800 + bit))
+
+    if len(out_chars) <= 1:
+        return "".join(out_chars)
+
+    # Syllable spaces: gap between last col of char i and first of i+1.
+    # Single-column chars inflate that gap by ~pitch_x (missing right col).
+    tokens: list[str] = []
+    buf = [out_chars[0]]
+    for i in range(len(chars_cols) - 1):
+        left = chars_cols[i]
+        right = chars_cols[i + 1]
+        gap = col_xs[right[0]] - col_xs[left[-1]]
+        if len(left) == 1:
+            gap -= pitch_x
+        if gap >= pitch_x * 2.45:
+            tokens.append("".join(buf))
+            buf = [out_chars[i + 1]]
+        else:
+            buf.append(out_chars[i + 1])
+    tokens.append("".join(buf))
+    return " ".join(tokens)
+
+
+def _digital_table_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
+    """Detect Unicode braille inside an HTML/UI table screenshot.
+
+    Screen-font braille (U+2800 glyphs) is not embossed paper: classical filled-
+    dot OCR mis-clusters font dots across cell borders. Here we:
+
+    1. Find the table grid via long horizontal/vertical edge runs
+    2. Collect dark ink blobs (individual font dots)
+    3. Decode each grid cell with a global 2×3 pitch estimate
+
+    Returns None when the image does not look like a digital braille table.
     """
+    try:
+        cv2, np = _require_cv()
+    except ImportError:
+        return None
+
+    try:
+        bgr = _load_bgr(image, cv2, np)
+    except Exception:
+        return None
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape[:2]
+    mean = float(np.mean(gray))
+    # Digital screenshots are bright pages; reject dark photos here.
+    if mean < 180 or h < 40 or w < 80:
+        return None
+
+    absy = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+    absx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+    ymax = float(absy.max()) or 1.0
+    xmax = float(absx.max()) or 1.0
+    _, hbin = cv2.threshold((absy / ymax * 255).astype(np.uint8), 40, 255, cv2.THRESH_BINARY)
+    _, vbin = cv2.threshold((absx / xmax * 255).astype(np.uint8), 40, 255, cv2.THRESH_BINARY)
+    hk = cv2.getStructuringElement(cv2.MORPH_RECT, (max(8, w // 8), 1))
+    vk = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(8, h // 8)))
+    hl = cv2.morphologyEx(hbin, cv2.MORPH_OPEN, hk)
+    vl = cv2.morphologyEx(vbin, cv2.MORPH_OPEN, vk)
+    ys = _line_centers(hl, 0, np)
+    xs = _line_centers(vl, 1, np)
+    if len(ys) < 3 or len(xs) < 3:
+        return None
+    n_rows, n_cols = len(ys) - 1, len(xs) - 1
+    if n_rows < 1 or n_cols < 1 or n_rows * n_cols > 80:
+        return None
+
+    # Dark font dots (reject mid-gray grid lines)
+    _, ink = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+    nlab, _labels, stats, centroids = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    dots: list[tuple[float, float]] = []
+    for i in range(1, nlab):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if 3 <= area <= 80:
+            dots.append((float(centroids[i, 0]), float(centroids[i, 1])))
+    if len(dots) < 6:
+        return None
+
+    pitch_x = _global_dot_pitch(dots, horiz=True, np=np)
+    pitch_y = _global_dot_pitch(dots, horiz=False, np=np)
+    if pitch_x < 2 or pitch_y < 2:
+        return None
+
+    pad = 2
+    grid: list[list[str]] = []
+    nonempty = 0
+    for ri in range(n_rows):
+        row: list[str] = []
+        y0, y1 = ys[ri] + pad, ys[ri + 1] - pad
+        for ci in range(n_cols):
+            x0, x1 = xs[ci] + pad, xs[ci + 1] - pad
+            cell = [d for d in dots if x0 <= d[0] <= x1 and y0 <= d[1] <= y1]
+            text = _decode_digital_cell(cell, pitch_x, pitch_y, np)
+            if text.strip():
+                nonempty += 1
+            row.append(text)
+        grid.append(row)
+
+    if nonempty < max(2, (n_rows * n_cols) // 4):
+        return None
+
+    flat = " || ".join(" | ".join(r) for r in grid)
+    # Also expose token rows (one string per table cell)
+    conf = min(0.95, 0.55 + 0.02 * nonempty)
+    return {
+        "braille": flat,
+        "rows": grid,
+        "method": "digital_table_unicode",
+        "confidence": round(float(conf), 3),
+        "n_dots": len(dots),
+        "grid": [n_rows, n_cols],
+        "detail": "screenshot of Unicode braille table cells",
+    }
+
+
+def _unicode_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
+    """Extract Unicode braille from digital screenshots (tables or plain OCR).
+
+    Prefer grid+dot decoding for HTML table screenshots; fall back to
+    pytesseract when it actually returns U+2800–U+283F characters.
+    """
+    digital = _digital_table_screenshot_detect(image)
+    if digital and digital.get("braille"):
+        return digital
+
     try:
         from PIL import Image
         import numpy as np
@@ -426,7 +688,7 @@ def _unicode_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
         pil = image.convert("RGB")
     elif hasattr(image, "shape"):
         arr = image
-        if arr.ndim == 2:
+        if getattr(arr, "ndim", 0) == 2:
             pil = Image.fromarray(arr)
         else:
             pil = Image.fromarray(arr[:, :, ::-1] if arr.shape[2] >= 3 else arr)
@@ -436,7 +698,6 @@ def _unicode_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
             return None
         pil = Image.open(path).convert("RGB")
 
-    # Try pytesseract if available
     try:
         import pytesseract  # type: ignore
 
@@ -446,23 +707,16 @@ def _unicode_screenshot_detect(image: PathLike | Any) -> dict[str, Any] | None:
             braille = "\n".join(found)
             return {
                 "braille": braille,
-                "rows": [[c for c in line if "\u2800" <= c <= "\u283f"] for line in braille.splitlines()],
+                "rows": [
+                    [c for c in line if "\u2800" <= c <= "\u283f"]
+                    for line in braille.splitlines()
+                ],
                 "method": "pytesseract_unicode",
                 "confidence": 0.55,
             }
     except Exception:
         pass
 
-    # Fallback: look for any text layer / metadata (rare for PNG)
-    # Or: if filename-embedded scaffold was used — skip.
-    # Connected-component glyph path: count dark blobs; if few large glyph-like
-    # regions and image looks like text screenshot (high contrast, mostly white),
-    # leave for opencv primary.
-    arr = np.asarray(pil.convert("L"))
-    mean = float(arr.mean())
-    if mean > 200:
-        # Likely white page; opencv dots path is better for embossed/printed dots
-        return None
     return None
 
 
@@ -485,11 +739,37 @@ def detect_braille_detailed(
         }
 
     errors: list[str] = []
+    uni: dict[str, Any] | None = None
+
+    # Try digital Unicode-braille table screenshots first. Font-rendered glyphs
+    # fool classical filled-dot OCR into confident but wrong layouts.
+    if mode in {"auto", "unicode", "screenshot", "digital"}:
+        try:
+            uni = _unicode_screenshot_detect(image)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"unicode: {type(exc).__name__}: {exc}")
+            uni = None
+        if uni and uni.get("braille"):
+            if mode != "auto" or uni.get("method") == "digital_table_unicode":
+                return uni
 
     if mode in {"auto", "opencv", "dots"}:
         try:
             result = _opencv_detect(image)
             if result.get("braille") or mode != "auto":
+                if (
+                    mode == "auto"
+                    and uni
+                    and uni.get("braille")
+                    and (
+                        float(result.get("confidence") or 0) < 0.6
+                        or (
+                            isinstance(result.get("rows"), list)
+                            and any(len(r) > 8 for r in result["rows"])
+                        )
+                    )
+                ):
+                    return uni
                 return result
         except ImportError:
             if mode != "auto":
@@ -500,13 +780,8 @@ def detect_braille_detailed(
                 raise
             errors.append(f"opencv: {type(exc).__name__}: {exc}")
 
-    if mode in {"auto", "unicode", "screenshot"}:
-        try:
-            uni = _unicode_screenshot_detect(image)
-            if uni and uni.get("braille"):
-                return uni
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"unicode: {type(exc).__name__}: {exc}")
+    if uni and uni.get("braille"):
+        return uni
 
     # Final: if OpenCV missing entirely, raise clear error (unless stub)
     try:

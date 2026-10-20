@@ -66,6 +66,16 @@ class TranslateRequest(BaseModel):
         None,
         description="若为 true（或输入像扁平表格）则按单元格翻译并还原表格",
     )
+    cells: list[list[str]] | None = Field(
+        None,
+        description="可选：已拆好的输入表格单元格；有则按此网格逐格翻译，输出行列与之对齐",
+    )
+    max_new_tokens: int | None = Field(
+        None,
+        ge=8,
+        le=512,
+        description="生成长度上限；默认表格单元格 32、整段 128（短格会再按长度收紧）",
+    )
 
 
 class TablePayload(BaseModel):
@@ -233,14 +243,34 @@ def v1_translate(body: TranslateRequest) -> TranslateResponse:
     if want_table is None:
         want_table = tables_mod.is_flat_table(braille)
 
+    # 旧默认 32 对整段盲文会截断（表现成「翻译不全」）；表格按格仍用较短上限。
+    if body.max_new_tokens is not None:
+        max_tok = int(body.max_new_tokens)
+    else:
+        max_tok = 32 if want_table else 128
+
     t0 = time.perf_counter()
     try:
         table_out: dict[str, Any] | None = None
         if want_table:
-            table_out = translate_table(braille, context=body.context, backend=backend)
+            # Prefer explicit input grid so output rows/cols match the preview table.
+            grid_in: Any = braille
+            if body.cells and any(any(str(c).strip() for c in row) for row in body.cells):
+                grid_in = body.cells
+            table_out = translate_table(
+                grid_in,
+                context=body.context,
+                backend=backend,
+                max_new_tokens=max_tok,
+            )
             text = table_out.get("flat_zh") or ""
         else:
-            text = translate(braille, context=body.context, backend=backend)
+            text = translate(
+                braille,
+                context=body.context,
+                backend=backend,
+                max_new_tokens=max_tok,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -293,17 +323,22 @@ async def v1_pipeline(
     backend: str = Form("qwen8b"),
     as_table: bool = Form(True),
     context: str | None = Form(None),
+    max_new_tokens: int | None = Form(None),
 ) -> PipelineResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="需要上传图片文件")
     path = _save_upload(file)
     t0 = time.perf_counter()
     try:
+        tok = max_new_tokens
+        if tok is None:
+            tok = 32 if as_table else 128
         result = pipeline(
             path,
             backend=(backend or "qwen8b").strip() or "qwen8b",
             as_table=as_table,
             context=context,
+            max_new_tokens=int(tok),
         )
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -336,7 +371,17 @@ def index() -> FileResponse:
     index_path = _WEB / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="缺少 apps/web/index.html")
-    return FileResponse(index_path, media_type="text/html; charset=utf-8")
+    # Prevent browsers from keeping a stale index that still re-parses table chips.
+    return FileResponse(
+        index_path,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-CBT-Web-Root": str(_WEB),
+        },
+    )
 
 
 if _WEB.is_dir():

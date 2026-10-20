@@ -332,3 +332,69 @@ details summary {
 .hidden {
   display: none !important;
 }
+
+/* —— 输入区自动表格 —— */
+.input-table-wrap {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.input-table-wrap.hidden {
+  display: none;
+}
+
+.input-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.input-table-label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--primary);
+}
+
+button.ghost.tiny {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.input-table-out {
+  margin-top: 0;
+}
+
+.input-table-out .cbt-input-cell {
+  width: 100%;
+  min-width: 72px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.input-table-out .cbt-input-cell:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.input-table-out td {
+  padding: 2px;
+  background: #fff;
+}
+
+.input-table-out tr:first-child td {
+  background: #eef2ff;
+}

@@ -62,3 +62,20 @@ dist/chinese-braille-demo/models/
 **/hf_download*.log
 **/eval_*_console.log
 data/samples/user_upload_debug*
+# Local run / download noise
+*.err
+*.pid
+*.out
+~$*
+data/synthetic_tables/resume_dl.py
+data/synthetic_tables/hf_download*
+data/synthetic_tables/eval_*_run.*
+data/synthetic_tables/speedtest.*
+data/synthetic_tables/pip_train*
+data/synthetic_tables/dl_*.err
+tools/
+scripts/_dl_one_shard.py
+scripts/_download_qwen8b.py
+scripts/_download_qwen8b_urllib.py
+scripts/_speedtest_dl.py
+scripts/_t01_acc_check.py

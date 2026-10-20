@@ -34,8 +34,23 @@ from pathlib import Path
 from typing import Any
 
 HF_MODEL_ID = "Violet-yo/Vision-Braille-Qwen3-8B"
-SYSTEM = "你是一个中国盲文翻译助手，请把通用盲文转换成为汉字。"
+SYSTEM = (
+    "你是一个中国盲文翻译助手，请把通用盲文转换成为汉字。"
+    "只输出汉字译文本身，不要输出 XML/HTML 标签、tool 标记、解释或其它语言。"
+)
+# Stricter prompt for table cells / short headers (防止一格生成多列管道串).
+SYSTEM_CELL = (
+    "你是一个中国盲文翻译助手。输入是表格中的【单个单元格】（多为短表头或数字）。"
+    "只输出该单元格对应的简短汉字，通常 1～6 个字。"
+    "严禁输出竖线|、多列、列表、换行、解释、XML/HTML 或 tool 标记。"
+    "不要把一个单元格扩写成整行表头或多项内容。"
+)
 USER_TMPL = "请把以下通用盲文转换成为汉字：\n盲文内容:\n{braille}"
+USER_CELL_TMPL = (
+    "请把下列【单个表格单元格】盲文译成简短汉字（只译这一格）：\n"
+    "{context_line}"
+    "盲文内容:\n{braille}"
+)
 ASSIST_MARKER = "对应的中文内容是："
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -128,10 +143,66 @@ def _strip_assistant_prefix(text: str) -> str:
         t = t.split(ASSIST_MARKER, 1)[1]
         if t.startswith("\n"):
             t = t[1:]
-        return t.strip()
-    for alt in ("对应的中文内容是:", "中文内容是：", "中文内容是:"):
-        if alt in t:
-            return t.split(alt, 1)[1].lstrip("\n").strip()
+        t = t.strip()
+    else:
+        for alt in ("对应的中文内容是:", "中文内容是：", "中文内容是:"):
+            if alt in t:
+                t = t.split(alt, 1)[1].lstrip("\n").strip()
+                break
+    # Drop leaked tool / chat-template markers from cell generations.
+    import re
+
+    t = re.sub(
+        r"</?\s*tool_?response\s*>|</?\s*tool_?calls?\s*>|</?\s*quote\s*>|<\|/?[^|>]+\|>",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+
+def _braille_compact_len(braille: str) -> int:
+    return len((braille or "").replace(" ", "").replace("\u2800", ""))
+
+
+def _is_short_cell(braille: str) -> bool:
+    """Heuristic: table headers / numeric cells are short braille strings."""
+    return _braille_compact_len(braille) <= 12
+
+
+def _build_messages(braille: str, context: str | None, *, cell_mode: bool) -> list[dict[str, str]]:
+    if cell_mode or _is_short_cell(braille):
+        ctx = (context or "").strip()
+        context_line = f"表格上下文: {ctx}\n" if ctx else ""
+        return [
+            {"role": "system", "content": SYSTEM_CELL},
+            {
+                "role": "user",
+                "content": USER_CELL_TMPL.format(
+                    braille=braille, context_line=context_line
+                ),
+            },
+        ]
+    return [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": USER_TMPL.format(braille=braille)},
+    ]
+
+
+def _finalize_cell_output(text: str) -> str:
+    """Post-process a single-cell translation: first line only, no pipes."""
+    t = _strip_assistant_prefix(text)
+    if not t:
+        return ""
+    # Stop at first newline (model sometimes dumps a fake multi-row table).
+    if "\n" in t:
+        t = t.split("\n", 1)[0].strip()
+    # Single cell must never contain column separators.
+    if "|" in t:
+        # Keep the first segment only — rest is usually hallucinated columns.
+        t = t.split("|", 1)[0].strip()
+    t = t.strip(" |\t")
     return t
 
 
@@ -271,13 +342,12 @@ def _generate(
     *,
     max_new_tokens: int,
     repetition_penalty: float,
+    context: str | None = None,
+    cell_mode: bool = False,
 ) -> str:
     import torch
 
-    messages = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": USER_TMPL.format(braille=braille)},
-    ]
+    messages = _build_messages(braille, context, cell_mode=cell_mode)
     prompt = tok.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
@@ -297,6 +367,8 @@ def _generate(
             pad_token_id=tok.eos_token_id,
         )
     raw = tok.decode(out[0][input_len:], skip_special_tokens=True)
+    if cell_mode or _is_short_cell(braille):
+        return _finalize_cell_output(raw)
     return _strip_assistant_prefix(raw)
 
 
@@ -306,6 +378,142 @@ def _scaffold(braille: str, context: str | None) -> str:
     return f"[scaffold-qwen8b]{ctx} input={preview!r}"
 
 
+
+def _cell_token_budget(braille: str, cap: int) -> int:
+    """Shorter cells need fewer new tokens; EOS usually stops earlier anyway."""
+    n = _braille_compact_len(braille)
+    # Tight caps for headers like 单价 / 商品 — long budgets invite pipe hallucinations.
+    if n <= 4:
+        return min(8, cap)
+    if n <= 8:
+        return min(12, cap)
+    if n <= 12:
+        return min(16, cap)
+    if n <= 20:
+        return min(32, cap)
+    return cap
+
+
+def translate_batch(
+    brailles: list[str],
+    context: str | None = None,
+    *,
+    adapter_path: str | Path | None = None,
+    model_path: str | Path | None = None,
+    quant: str = "4bit",
+    max_new_tokens: int = 32,
+    repetition_penalty: float = 1.15,
+    batch_size: int = 8,
+) -> list[str]:
+    """Translate many braille strings in one or more batched generate() calls.
+
+    Empty / whitespace-only inputs become "" without calling the model.
+    Falls back to sequential translate() when batching is unavailable.
+    """
+    if not brailles:
+        return []
+
+    out: list[str | None] = [None] * len(brailles)
+    pending_idx: list[int] = []
+    pending_text: list[str] = []
+    for i, br in enumerate(brailles):
+        s = (br or "").strip()
+        if not s:
+            out[i] = ""
+        else:
+            pending_idx.append(i)
+            pending_text.append(s)
+
+    if not pending_text:
+        return [x or "" for x in out]
+
+    if _want_stub() or not (_cuda_ok() or _allow_cpu()):
+        for i, s in zip(pending_idx, pending_text):
+            out[i] = _scaffold(s, context)
+        return [x or "" for x in out]
+
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM  # noqa: F401
+    except ImportError:
+        for i, s in zip(pending_idx, pending_text):
+            out[i] = translate(
+                s,
+                context=context,
+                adapter_path=adapter_path,
+                model_path=model_path,
+                quant=quant,
+                max_new_tokens=max_new_tokens,
+                repetition_penalty=repetition_penalty,
+            )
+        return [x or "" for x in out]
+
+    q = quant
+    if not _cuda_ok() and q in ("4bit", "8bit", "auto"):
+        q = "fp16" if _allow_cpu() else q
+
+    tok, model, _meta = _ensure_loaded(model_path, adapter_path, q)
+
+    prev_side = getattr(tok, "padding_side", "right")
+    tok.padding_side = "left"
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+
+    try:
+        dev = next(model.parameters()).device
+    except StopIteration:
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    bs = max(1, int(batch_size or 8))
+    try:
+        for start in range(0, len(pending_text), bs):
+            chunk = pending_text[start : start + bs]
+            chunk_idx = pending_idx[start : start + bs]
+            prompts = []
+            budgets = []
+            for br in chunk:
+                messages = _build_messages(br, context, cell_mode=True)
+                prompts.append(
+                    tok.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                )
+                budgets.append(_cell_token_budget(br, max_new_tokens))
+            inputs = tok(prompts, return_tensors="pt", padding=True)
+            inputs = {k: v.to(dev) for k, v in inputs.items()}
+            input_len = inputs["input_ids"].shape[1]
+            gen_tok = max(budgets) if budgets else max_new_tokens
+            with torch.no_grad():
+                gen = model.generate(
+                    **inputs,
+                    max_new_tokens=gen_tok,
+                    do_sample=False,
+                    repetition_penalty=repetition_penalty,
+                    pad_token_id=tok.pad_token_id,
+                    eos_token_id=tok.eos_token_id,
+                    use_cache=True,
+                )
+            for row_i, orig_i in enumerate(chunk_idx):
+                raw = tok.decode(gen[row_i][input_len:], skip_special_tokens=True)
+                out[orig_i] = _finalize_cell_output(raw)
+    except Exception:
+        for i, s in zip(pending_idx, pending_text):
+            if out[i] is None:
+                out[i] = translate(
+                    s,
+                    context=context,
+                    adapter_path=adapter_path,
+                    model_path=model_path,
+                    quant=quant,
+                    max_new_tokens=_cell_token_budget(s, max_new_tokens),
+                    repetition_penalty=repetition_penalty,
+                )
+    finally:
+        tok.padding_side = prev_side
+
+    return [x or "" for x in out]
+
+
 def translate(
     braille: str,
     context: str | None = None,
@@ -313,7 +521,7 @@ def translate(
     adapter_path: str | Path | None = None,
     model_path: str | Path | None = None,
     quant: str = "4bit",
-    max_new_tokens: int = 32,
+    max_new_tokens: int = 128,
     repetition_penalty: float = 1.15,
 ) -> str:
     """Translate Chinese braille to Han via Vision-Braille-Qwen3-8B (+ LoRA).
@@ -334,11 +542,11 @@ def translate(
     quant:
         ``4bit`` (default, ~8GB VRAM) | ``8bit`` | ``bf16`` | ``fp16`` | ``auto``.
     max_new_tokens:
-        Generation length cap (short cells ≈ 32).
+        Generation length cap (default 128; short cells usually finish earlier via EOS).
     repetition_penalty:
         Greedy decode repetition penalty (eval default 1.15).
     """
-    _ = context  # API parity; chat template does not yet inject context
+    # context is injected into short-cell / table-cell prompts
     if _want_stub():
         return _scaffold(braille, context)
 
@@ -370,10 +578,13 @@ def translate(
         quant = "fp16" if _allow_cpu() else quant
 
     tok, model, _meta = _ensure_loaded(model_path, adapter_path, quant)
+    cell_mode = _is_short_cell(braille)
     return _generate(
         tok,
         model,
         braille,
-        max_new_tokens=max_new_tokens,
+        max_new_tokens=_cell_token_budget(braille, max_new_tokens),
         repetition_penalty=repetition_penalty,
+        context=context,
+        cell_mode=cell_mode,
     )

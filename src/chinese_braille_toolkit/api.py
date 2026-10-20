@@ -37,7 +37,7 @@ def translate(
     adapter_path: str | Path | None = None,
     model_path: str | Path | None = None,
     quant: str = "4bit",
-    max_new_tokens: int = 32,
+    max_new_tokens: int = 128,
 ) -> str:
     """Translate Chinese braille to Han characters with optional context."""
     chosen = _resolve_backend(backend)
@@ -62,14 +62,31 @@ def translate_table(
     """Translate a flat braille table (or 2-D cells) cell-by-cell.
 
     Returns dict with ``cells``, ``flat_zh``, ``markdown``, ``csv``, ``html``,
-    ``braille_cells``.
+    ``braille_cells``. Uses batched GPU decode for ``qwen8b`` when available.
     """
     chosen = _resolve_backend(backend)
 
     def _fn(br: str, context: str | None = None) -> str:
         return translate(br, context=context, backend=chosen, **translate_kw)
 
-    return tables_mod.translate_table(cells_or_flat, _fn, context=context)
+    batch_fn = None
+    batch_size = int(translate_kw.pop("batch_size", 8) or 8)
+    if chosen == "qwen8b":
+        def batch_fn(brs: list[str], context: str | None = None, batch_size: int = 8) -> list[str]:
+            return qwen8b.translate_batch(
+                brs,
+                context=context,
+                batch_size=batch_size,
+                **translate_kw,
+            )
+
+    return tables_mod.translate_table(
+        cells_or_flat,
+        _fn,
+        context=context,
+        batch_translate_fn=batch_fn,
+        batch_size=batch_size,
+    )
 
 
 def pipeline(

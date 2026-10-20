@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang='zh-CN'><head><meta charset='utf-8'>
+<title>synthetic_tables 表格预览</title>
+<style>
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;margin:24px;background:#f6f7fb;color:#1a1a1a;}
+h1{font-size:1.4rem;} h2{font-size:1.15rem;margin-top:2rem;}
+.meta{color:#555;font-size:0.9rem;margin-bottom:8px;}
+table{border-collapse:collapse;background:#fff;margin:8px 0 16px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+th,td{border:1px solid #ccc;padding:8px 12px;text-align:left;vertical-align:top;}
+th{background:#e8eef8;font-weight:600;}
+tr:nth-child(even) td{background:#fafbfe;}
+.braille{font-size:1.05rem;letter-spacing:0.05em;}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:900px){.pair{grid-template-columns:1fr;}}
+nav a{margin-right:12px;}
+</style></head><body>
+<h1>测评集表格预览（synthetic_tables）</h1>
+<p class='meta'>共 8 张表 · 来源 tables.jsonl · 每张表同时展示汉字与盲文</p>
+<nav><a href='#t01'>t01</a> <a href='#t02'>t02</a> <a href='#t03'>t03</a> <a href='#t04'>t04</a> <a href='#t05'>t05</a> <a href='#t06'>t06</a> <a href='#t07'>t07</a> <a href='#t08'>t08</a></nav>
+<h2 id='t01'>t01 · 三年级期中成绩表</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; grades</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>姓名</th>
+<th>语文</th>
+<th>数学</th>
+<th>英语</th>
+</tr>
+<tr>
+<td>张三</td>
+<td>92</td>
+<td>88</td>
+<td>85</td>
+</tr>
+<tr>
+<td>李四</td>
+<td>78</td>
+<td>95</td>
+<td>80</td>
+</tr>
+<tr>
+<td>王五</td>
+<td>85</td>
+<td>82</td>
+<td>90</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠓⠊⠼ ⠍⠊⠼⠂</th>
+<th>⠬ ⠒</th>
+<th>⠱⠥ ⠓⠾</th>
+<th>⠊⠼ ⠬⠄</th>
+</tr>
+<tr>
+<td>⠌⠦ ⠎⠧⠁</td>
+<td>⠼⠊⠃</td>
+<td>⠼⠓⠓</td>
+<td>⠼⠓⠑</td>
+</tr>
+<tr>
+<td>⠇⠊ ⠎</td>
+<td>⠼⠛⠓</td>
+<td>⠼⠊⠑</td>
+<td>⠼⠓⠚</td>
+</tr>
+<tr>
+<td>⠶⠂ ⠥</td>
+<td>⠼⠓⠑</td>
+<td>⠼⠓⠃</td>
+<td>⠼⠊⠚</td>
+</tr>
+</table></div></div>
+<h2 id='t02'>t02 · 十月份商品销售表</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; sales</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>商品</th>
+<th>数量</th>
+<th>单价</th>
+<th>金额</th>
+</tr>
+<tr>
+<td>铅笔</td>
+<td>120</td>
+<td>2</td>
+<td>240</td>
+</tr>
+<tr>
+<td>笔记本</td>
+<td>80</td>
+<td>5</td>
+<td>400</td>
+</tr>
+<tr>
+<td>橡皮</td>
+<td>50</td>
+<td>1</td>
+<td>50</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠱⠦ ⠏⠊⠴</th>
+<th>⠱⠥ ⠇⠭</th>
+<th>⠙⠧ ⠛⠫⠆</th>
+<th>⠛⠊⠴ ⠢</th>
+</tr>
+<tr>
+<td>⠅⠩ ⠃⠊</td>
+<td>⠼⠁⠃⠚</td>
+<td>⠼⠃</td>
+<td>⠼⠃⠙⠚</td>
+</tr>
+<tr>
+<td>⠃⠊ ⠛⠊ ⠃⠴⠄</td>
+<td>⠼⠓⠚</td>
+<td>⠼⠑</td>
+<td>⠼⠙⠚⠚</td>
+</tr>
+<tr>
+<td>⠓⠭⠆ ⠏⠊</td>
+<td>⠼⠑⠚</td>
+<td>⠼⠁</td>
+<td>⠼⠑⠚</td>
+</tr>
+</table></div></div>
+<h2 id='t03'>t03 · 周一课程表</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; schedule</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>节次</th>
+<th>时间</th>
+<th>课程</th>
+<th>教室</th>
+</tr>
+<tr>
+<td>第一节</td>
+<td>8时</td>
+<td>语文</td>
+<td>101</td>
+</tr>
+<tr>
+<td>第二节</td>
+<td>9时</td>
+<td>数学</td>
+<td>101</td>
+</tr>
+<tr>
+<td>第三节</td>
+<td>10时</td>
+<td>英语</td>
+<td>203</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠛⠑ ⠉</th>
+<th>⠱ ⠛⠩</th>
+<th>⠅⠢ ⠟⠼</th>
+<th>⠛⠜ ⠱</th>
+</tr>
+<tr>
+<td>⠙⠊ ⠊ ⠛⠑</td>
+<td>⠼⠓ ⠱</td>
+<td>⠬⠄ ⠒</td>
+<td>⠼⠁⠚⠁</td>
+</tr>
+<tr>
+<td>⠙⠊ ⠗⠆ ⠛⠑</td>
+<td>⠼⠊ ⠱</td>
+<td>⠱⠥ ⠓⠾</td>
+<td>⠼⠁⠚⠁</td>
+</tr>
+<tr>
+<td>⠙⠊ ⠎⠧ ⠛⠑</td>
+<td>⠼⠁⠚ ⠱</td>
+<td>⠊⠼ ⠬</td>
+<td>⠼⠃⠚⠉</td>
+</tr>
+</table></div></div>
+<h2 id='t04'>t04 · 班级考试统计</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; simple stats</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>科目</th>
+<th>平均</th>
+<th>最高</th>
+<th>最低</th>
+<th>及格率</th>
+</tr>
+<tr>
+<td>语文</td>
+<td>82</td>
+<td>98</td>
+<td>61</td>
+<td>92</td>
+</tr>
+<tr>
+<td>数学</td>
+<td>79</td>
+<td>100</td>
+<td>55</td>
+<td>88</td>
+</tr>
+<tr>
+<td>英语</td>
+<td>84</td>
+<td>97</td>
+<td>66</td>
+<td>94</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠅⠢ ⠍⠥</th>
+<th>⠏⠊⠼ ⠛⠬⠴</th>
+<th>⠵⠥⠮ ⠛⠖</th>
+<th>⠵⠥⠮ ⠙⠊</th>
+<th>⠛⠊ ⠛⠢ ⠇⠬</th>
+</tr>
+<tr>
+<td>⠬ ⠒⠂</td>
+<td>⠼⠓⠃</td>
+<td>⠼⠊⠓</td>
+<td>⠼⠋⠁</td>
+<td>⠼⠊⠃</td>
+</tr>
+<tr>
+<td>⠱⠥ ⠓⠾</td>
+<td>⠼⠛⠊</td>
+<td>⠼⠁⠚⠚</td>
+<td>⠼⠑⠑</td>
+<td>⠼⠓⠓</td>
+</tr>
+<tr>
+<td>⠊⠼ ⠬</td>
+<td>⠼⠓⠙</td>
+<td>⠼⠊⠛</td>
+<td>⠼⠋⠋</td>
+<td>⠼⠊⠙</td>
+</tr>
+</table></div></div>
+<h2 id='t05'>t05 · 实验室器材借用登记</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; lab inventory log</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>姓名</th>
+<th>器材</th>
+<th>数量</th>
+<th>日期</th>
+</tr>
+<tr>
+<td>赵六</td>
+<td>显微镜</td>
+<td>2</td>
+<td>3月5日</td>
+</tr>
+<tr>
+<td>钱七</td>
+<td>天平</td>
+<td>1</td>
+<td>3月6日</td>
+</tr>
+<tr>
+<td>孙八</td>
+<td>试管</td>
+<td>10</td>
+<td>3月7日</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠓⠊⠼ ⠍⠊⠼</th>
+<th>⠅⠊ ⠉⠪</th>
+<th>⠱⠥ ⠇⠭</th>
+<th>⠚ ⠅⠊</th>
+</tr>
+<tr>
+<td>⠌⠖ ⠇⠳</td>
+<td>⠓⠩ ⠥⠮ ⠛⠊⠼</td>
+<td>⠼⠃</td>
+<td>⠼⠉ ⠾ ⠼⠑ ⠚</td>
+</tr>
+<tr>
+<td>⠅⠩ ⠅⠊⠁</td>
+<td>⠞⠩⠁ ⠏⠊⠼</td>
+<td>⠼⠁</td>
+<td>⠼⠉ ⠾ ⠼⠋ ⠚</td>
+</tr>
+<tr>
+<td>⠎⠒ ⠃⠔⠁</td>
+<td>⠱ ⠛⠻</td>
+<td>⠼⠁⠚</td>
+<td>⠼⠉ ⠾ ⠼⠛ ⠚</td>
+</tr>
+</table></div></div>
+<h2 id='t06'>t06 · 食堂一周菜单摘要</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; canteen schedule summary</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>星期</th>
+<th>午餐</th>
+<th>人数</th>
+</tr>
+<tr>
+<td>一</td>
+<td>米饭炒菜</td>
+<td>320</td>
+</tr>
+<tr>
+<td>三</td>
+<td>面条汤</td>
+<td>280</td>
+</tr>
+<tr>
+<td>五</td>
+<td>饺子</td>
+<td>350</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠓⠊⠼ ⠅⠊⠁</th>
+<th>⠥ ⠉⠧</th>
+<th>⠚⠴ ⠱⠥</th>
+</tr>
+<tr>
+<td>⠊</td>
+<td>⠍⠊ ⠋⠧ ⠟⠖ ⠉⠪</td>
+<td>⠼⠉⠃⠚</td>
+</tr>
+<tr>
+<td>⠎⠧</td>
+<td>⠍⠩ ⠞⠜ ⠞⠦</td>
+<td>⠼⠃⠓⠚</td>
+</tr>
+<tr>
+<td>⠥</td>
+<td>⠛⠜ ⠵</td>
+<td>⠼⠉⠑⠚</td>
+</tr>
+</table></div></div>
+<h2 id='t07'>t07 · 视力检查结果简表</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; vision check (decimal digits kept as Braille numbers)</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>姓名</th>
+<th>左眼</th>
+<th>右眼</th>
+<th>建议</th>
+</tr>
+<tr>
+<td>周九</td>
+<td>5.0</td>
+<td>4.8</td>
+<td>复查</td>
+</tr>
+<tr>
+<td>吴十</td>
+<td>4.6</td>
+<td>4.7</td>
+<td>配镜</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠓⠊⠼ ⠍⠊⠼</th>
+<th>⠵⠕ ⠩</th>
+<th>⠳ ⠩</th>
+<th>⠛⠩ ⠊⠆</th>
+</tr>
+<tr>
+<td>⠌⠷ ⠛⠳⠄</td>
+<td>⠼⠑ . ⠼⠚</td>
+<td>⠼⠙ . ⠼⠓</td>
+<td>⠋⠥ ⠟⠔</td>
+</tr>
+<tr>
+<td>⠥ ⠱</td>
+<td>⠼⠙ . ⠼⠋</td>
+<td>⠼⠙ . ⠼⠛</td>
+<td>⠏⠮⠆ ⠛⠊⠼</td>
+</tr>
+</table></div></div>
+<h2 id='t08'>t08 · 小组积分榜</h2>
+<p class='meta'>synthetic via pypinyin Style.BRAILLE_MAINLAND (+~10% TONE); not official embosser QA; cell sep=&#x27; | &#x27;, row sep=&#x27; || &#x27;; team scoreboard</p>
+<div class='pair'>
+<div><h3>汉字</h3><table>
+<tr>
+<th>组别</th>
+<th>得分</th>
+<th>名次</th>
+</tr>
+<tr>
+<td>红组</td>
+<td>45</td>
+<td>1</td>
+</tr>
+<tr>
+<td>蓝组</td>
+<td>42</td>
+<td>2</td>
+</tr>
+<tr>
+<td>绿组</td>
+<td>38</td>
+<td>3</td>
+</tr>
+</table></div>
+<div><h3>盲文</h3><table class='braille'>
+<tr>
+<th>⠵⠥ ⠃⠑⠂</th>
+<th>⠙⠢ ⠋⠴⠁</th>
+<th>⠍⠊⠼ ⠉</th>
+</tr>
+<tr>
+<td>⠓⠲ ⠵⠥</td>
+<td>⠼⠙⠑</td>
+<td>⠼⠁</td>
+</tr>
+<tr>
+<td>⠇⠧ ⠵⠥</td>
+<td>⠼⠙⠃</td>
+<td>⠼⠃</td>
+</tr>
+<tr>
+<td>⠇⠬ ⠵⠥</td>
+<td>⠼⠉⠓</td>
+<td>⠼⠉</td>
+</tr>
+</table></div></div>
+</body></html>
