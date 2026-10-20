@@ -1,0 +1,4 @@
+﻿# Default LoRA dir for chinese_braille_toolkit.backends.qwen8b
+
+Copied from outputs/lora_tables_win_v3 (200-step QLoRA, holdout EM ~93%).
+Override with env CBT_QWEN_ADAPTER or translate(..., adapter_path=...).

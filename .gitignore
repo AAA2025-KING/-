@@ -25,10 +25,16 @@ env/
 .env.*
 !.env.example
 
-# Large model weights & training outputs (do NOT upload)
-models/
+# Large model weights & training outputs (do NOT upload base / other models)
+# Track only the table-domain LoRA adapter under models/lora_tables/
+# Use models/* (not models/) so git can re-include a subdirectory.
+models/*
+!models/lora_tables/
+!models/lora_tables/**
 outputs/
 *.safetensors
+!models/lora_tables/*.safetensors
+!models/lora_tables/**/*.safetensors
 *.bin
 *.pt
 *.pth

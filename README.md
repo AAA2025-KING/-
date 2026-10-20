@@ -4,7 +4,7 @@
 
 仓库：<https://github.com/AAA2025-KING/->
 
-> 本仓库只含**代码与文档**。Vision-Braille-Qwen3-8B（约 16GB）与 LoRA 权重**不在仓库中**，需自行下载到本地 `models/`。
+> 本仓库含**代码、文档与表格域 LoRA**（`models/lora_tables/`）。Vision-Braille-Qwen3-8B 基座（约 16GB）**不在仓库中**，需自行下载到本地 `models/Vision-Braille-Qwen3-8B/`。
 
 ## 功能概览
 
@@ -18,7 +18,7 @@
 | **表格还原** | 扁平 | / \|\| 分隔与 OCR 行结构 → markdown / csv / html；网页可点击单元格定位（行列跳转） |
 | **中文 TTS** | 网页端用系统中文语音朗读单元格 / 本行 / 整表 |
 | **语义翻译** | 	ranslate / pipeline；后端 qwen8b（本地 CUDA + 权重）或 mt5 / uto |
-| **Qwen3-8B + LoRA** | 默认尝试加载 models/Vision-Braille-Qwen3-8B 与 models/lora_tables/（若存在）；无 GPU 时走脚手架，便于联调 |
+| **Qwen3-8B + LoRA** | 基座需自备到 models/Vision-Braille-Qwen3-8B；表格 LoRA 已在 models/lora_tables/；无 GPU 时走脚手架，便于联调 |
 
 ## 环境要求
 
@@ -49,7 +49,7 @@ pip install -e ".[qwen]"
 
 ## 他人如何获取模型
 
-本仓库**不包含**任何模型权重（`.gitignore` 已忽略 `models/`、`outputs/`、`*.safetensors`、`*.bin` 等）。克隆代码后，请自行下载基座模型；LoRA 适配器需自备或跳过。
+本仓库已包含表格域 **LoRA**（`models/lora_tables/`）。**不含** Vision-Braille-Qwen3-8B 基座与其它大权重（`.gitignore` 忽略 `models/*`，但例外跟踪 `models/lora_tables/`）。克隆后请自行下载基座；LoRA 开箱即可与基座一起加载。
 
 ### 1. 克隆本仓库
 
@@ -99,15 +99,14 @@ Windows 另可参考脚本：`scripts/windows/Download-BaseModel.ps1`。
 
 下载完成后目录中应有 `config.json`、分片 `model-*-of-*.safetensors`、tokenizer 等文件。
 
-### 3. LoRA 适配器（可选，GitHub 上没有）
+### 3. LoRA 适配器（已在本仓库）
 
-默认若存在会加载 `models/lora_tables/`（需含 `adapter_config.json` 与 `adapter_model.safetensors`）。
+克隆后即有 `models/lora_tables/`（含 `adapter_config.json`、`adapter_model.safetensors`、`SOURCE.txt` 等）。默认若存在会自动加载，配合上一步的基座使用。
 
-- **本仓库不提供** `models/lora_tables` 权重，请勿指望从 GitHub 拉取。
-- 你可以：用 `scripts/train_lora_tables.py` **自己训练**后拷到该目录；或
-- **跳过 LoRA**，只使用上面的基座模型（无 adapter 时后端会按基座推理）。
-
-请勿把 `models/` 或任何 `*.safetensors` 提交进 Git。
+- 来源说明见该目录下 `SOURCE.txt`（约 200-step QLoRA，表格 holdout）。
+- 可用 `scripts/train_lora_tables.py` **自行再训**后覆盖该目录。
+- 也可删除/移走 adapter，只使用基座推理。
+- **请勿**把基座 `models/Vision-Braille-Qwen3-8B/` 或其它大权重提交进 Git。
 
 ## 启动网页 API
 
@@ -200,7 +199,9 @@ chinese-braille-toolkit/
 ├── data/                 # 合成样例与 jsonl（无大权重）
 ├── docs/                 # 使用与打包说明
 ├── tests/
-├── models/               # 本地权重（git 忽略）
+├── models/
+│   ├── lora_tables/      # 表格域 LoRA（已入库）
+│   └── Vision-Braille-…  # 基座（需自备，git 忽略）
 └── outputs/              # 训练输出（git 忽略）
 ```
 
