@@ -157,6 +157,18 @@ class PrepareRetrainRequest(BaseModel):
 class StartRetrainRequest(BaseModel):
     max_steps: int | None = Field(None, ge=20, le=400)
     dry_run: bool = False
+    copy_to_models: bool = Field(
+        True, description="训完后复制适配器到 models/lora_tables"
+    )
+    hot_reload: bool = Field(
+        True, description="训完后卸载旧模型，下次翻译加载新适配器"
+    )
+    allow_without_user_corrections: bool = Field(
+        False,
+        description="无网页纠错时，确认仅用已有合并集/holdout 再训",
+    )
+    include_user: bool = True
+    include_holdout_errors: bool = True
 
 class HealthResponse(BaseModel):
     ok: bool
@@ -488,112 +500,41 @@ def v1_retrain_prepare(body: PrepareRetrainRequest | None = None) -> dict[str, A
 
 @app.get("/v1/retrain/status")
 def v1_retrain_status() -> dict[str, Any]:
-    return corr_mod.read_retrain_status()
+    """轮询一键重训进度（进程存活、日志尾部、步数）。"""
+    return corr_mod.refresh_retrain_status()
 
 
 @app.post("/v1/retrain")
 def v1_retrain_start(body: StartRetrainRequest | None = None) -> dict[str, Any]:
-    """在本机后台启动短训（需 CBT_ALLOW_RETRAIN=1 且 CUDA 可用）。"""
-    import subprocess
-    import sys as _sys
+    """一键重训：合并纠错 → 后台短训 → 复制适配器 → 可选热卸载。
 
+    需 CBT_ALLOW_RETRAIN=1（Windows Start-BrailleApi.bat 默认开启）且本机 CUDA。
+    """
     b = body or StartRetrainRequest()
-    if not corr_mod.retrain_allowed():
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "未开启再训。请设环境变量 CBT_ALLOW_RETRAIN=1，"
-                "或改用 POST /v1/retrain/prepare + 本机 PowerShell 脚本。"
-            ),
-        )
-    if not corr_mod.cuda_available() and not b.dry_run:
-        raise HTTPException(
-            status_code=503,
-            detail="未检测到 CUDA，拒绝启动训练。请在 Windows GPU 机器上运行，或先 dry_run。",
-        )
-
-    prep = corr_mod.write_retrain_request(max_steps=b.max_steps)
-    hp = prep["hyperparams"]
-    py = _sys.executable
-    cmd = [
-        py,
-        str(corr_mod.ROOT / "scripts" / "train_lora_tables.py"),
-        "--config",
-        str(corr_mod.ROOT / hp["config"]),
-        "--data-path",
-        str(corr_mod.ROOT / hp["data_path"]),
-        "--output-dir",
-        str(corr_mod.ROOT / hp["output_dir"]),
-        "--bits",
-        str(hp["bits"]),
-        "--max-steps",
-        str(hp["max_steps"]),
-        "--optim",
-        str(hp["optim"]),
-        "--logging-steps",
-        str(hp["logging_steps"]),
-    ]
-    if b.dry_run:
-        cmd.append("--dry-run")
-
-    log_path = corr_mod.OUTPUTS_DIR / "retrain_api.log"
-    corr_mod.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if b.dry_run:
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(corr_mod.ROOT),
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        status = {
-            "state": "dry_run_done",
-            "returncode": proc.returncode,
-            "cmd": cmd,
-            "stdout_tail": (proc.stdout or "")[-2000:],
-            "stderr_tail": (proc.stderr or "")[-2000:],
-            "message": "dry-run 完成（未真正训练）",
-        }
-        corr_mod.write_retrain_status(status)
-        return status
-
-    # Background train
     try:
-        log_f = open(log_path, "a", encoding="utf-8")
-        log_f.write(f"\n--- start {_shanghai_safe()} ---\n")
-        log_f.write(" ".join(cmd) + "\n")
-        log_f.flush()
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(corr_mod.ROOT),
-            stdout=log_f,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+        return corr_mod.start_retrain_job(
+            max_steps=b.max_steps,
+            dry_run=b.dry_run,
+            copy_to_models=b.copy_to_models,
+            hot_reload=b.hot_reload,
+            allow_without_user_corrections=b.allow_without_user_corrections,
+            include_user=b.include_user,
+            include_holdout_errors=b.include_holdout_errors,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        # Gate / validation — client may confirm allow_without_user_corrections
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        msg = str(exc)
+        code = 409 if "已有再训" in msg else 503 if "CUDA" in msg else 500
+        raise HTTPException(status_code=code, detail=msg) from exc
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    status = {
-        "state": "running",
-        "pid": proc.pid,
-        "cmd": cmd,
-        "log_path": str(log_path),
-        "output_dir": hp["output_dir"],
-        "max_steps": hp["max_steps"],
-        "message": f"已后台启动再训 PID={proc.pid}，日志 {log_path.name}",
-        "after": prep["commands"]["after_train_copy"],
-    }
-    corr_mod.write_retrain_status(status)
-    return status
-
-
-def _shanghai_safe() -> str:
-    return corr_mod._shanghai_iso()
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.get("/")

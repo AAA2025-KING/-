@@ -143,3 +143,115 @@ def test_api_corrections_endpoints(tmp_path, monkeypatch):
     # retrain without env should 403
     bad = client.post("/v1/retrain", json={"dry_run": True})
     assert bad.status_code == 403
+
+
+def test_retrain_gate_and_copy(tmp_path, monkeypatch):
+    user = tmp_path / "user.jsonl"
+    train = tmp_path / "train.jsonl"
+    err = tmp_path / "err.jsonl"
+    merged = tmp_path / "merged.jsonl"
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
+    models = tmp_path / "models" / "lora_tables"
+    train.write_text(
+        '{"braille": "⠃", "zh": "二"}\n',
+        encoding="utf-8",
+    )
+    err.write_text("", encoding="utf-8")
+    user.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(corr, "USER_CORRECTIONS", user)
+    monkeypatch.setattr(corr, "TRAIN_TABLES", train)
+    monkeypatch.setattr(corr, "ERROR_CORRECTIONS", err)
+    monkeypatch.setattr(corr, "MERGED_TRAIN", merged)
+    monkeypatch.setattr(corr, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(corr, "OUTPUTS_DIR", out_dir)
+    monkeypatch.setattr(corr, "ADAPTER_DEST", models)
+    monkeypatch.setattr(corr, "ROOT", tmp_path)
+
+    with pytest.raises(ValueError, match="至少 1 条|确认"):
+        corr.retrain_gate(allow_without_user_corrections=False)
+
+    # with train present, confirm flag opens gate
+    g = corr.retrain_gate(allow_without_user_corrections=True)
+    assert g["ok"] is True
+
+    user.write_text(
+        '{"braille": "⠌⠖ ⠇⠳", "zh": "赵六"}\n',
+        encoding="utf-8",
+    )
+    g2 = corr.retrain_gate(allow_without_user_corrections=False)
+    assert g2["gate"] == "user_corrections"
+
+    # copy adapter
+    src = tmp_path / "out_adapter"
+    src.mkdir()
+    (src / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (src / "adapter_model.safetensors").write_bytes(b"fake")
+    copied = corr.copy_adapter_to_models(src, models)
+    assert copied["ok"] is True
+    assert (models / "adapter_config.json").is_file()
+    assert (models / "adapter_model.safetensors").is_file()
+
+
+def test_api_one_click_retrain_dry_run(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    import apps.api_server as server
+
+    user = tmp_path / "user_corrections.jsonl"
+    train = tmp_path / "train.jsonl"
+    err = tmp_path / "err.jsonl"
+    merged = tmp_path / "merged.jsonl"
+    out_dir = tmp_path / "outputs"
+    out_dir.mkdir()
+    # Minimal train script stub path: point ROOT to tmp and create scripts/
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    train_py = scripts / "train_lora_tables.py"
+    train_py.write_text(
+        "import sys\nprint('dry-run stub')\nsys.exit(0)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "lora_tables.yaml").write_text("train: {}\n", encoding="utf-8")
+    train.write_text(
+        '{"braille": "⠃", "zh": "二"}\n',
+        encoding="utf-8",
+    )
+    err.write_text("", encoding="utf-8")
+    user.write_text(
+        '{"braille": "⠌⠖ ⠇⠳", "zh": "赵六"}\n',
+        encoding="utf-8",
+    )
+
+    for mod in (corr, server.corr_mod):
+        monkeypatch.setattr(mod, "USER_CORRECTIONS", user)
+        monkeypatch.setattr(mod, "TRAIN_TABLES", train)
+        monkeypatch.setattr(mod, "ERROR_CORRECTIONS", err)
+        monkeypatch.setattr(mod, "MERGED_TRAIN", merged)
+        monkeypatch.setattr(mod, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(mod, "OUTPUTS_DIR", out_dir)
+        monkeypatch.setattr(mod, "RETRAIN_REQUEST", out_dir / "retrain_request.json")
+        monkeypatch.setattr(mod, "RETRAIN_STATUS", out_dir / "retrain_status.json")
+        monkeypatch.setattr(mod, "ROOT", tmp_path)
+        monkeypatch.setattr(mod, "ADAPTER_DEST", tmp_path / "models" / "lora_tables")
+
+    monkeypatch.setenv("CBT_ALLOW_RETRAIN", "1")
+    client = TestClient(server.app)
+
+    # without allow env cleared in other test; here allowed
+    r = client.post("/v1/retrain", json={"dry_run": True})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "dry_run_done"
+
+    st = client.get("/v1/retrain/status")
+    assert st.status_code == 200
+    assert st.json().get("state") in {"dry_run_done", "idle", "succeeded", "failed", "running", "unknown"}
+
+    # gate: wipe user corrections
+    user.write_text("", encoding="utf-8")
+    bad = client.post("/v1/retrain", json={"dry_run": True})
+    assert bad.status_code == 400

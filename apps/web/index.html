@@ -6,7 +6,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中文盲文翻译 · 工作台</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021splitD" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021oneclick" />
 </head>
 <body class="workspace">
   <header class="topbar">
@@ -147,10 +147,21 @@
               <button type="button" id="btnSaveCorrect" class="primary">保存纠错</button>
             </div>
             <div class="correct-row">
-              <button type="button" id="btnPrepareRetrain" class="ghost accent">准备再训</button>
+              <button type="button" id="btnOneClickRetrain" class="primary">一键重训</button>
               <button type="button" id="btnRefreshCorrectStats" class="ghost tiny">刷新计数</button>
             </div>
+            <details class="retrain-advanced">
+              <summary>高级：仅准备再训（不自动开训）</summary>
+              <div class="correct-row">
+                <button type="button" id="btnPrepareRetrain" class="ghost accent">准备再训</button>
+              </div>
+              <p class="hint compact">只合并样本并给出 PowerShell 命令；适合手动在另一台机器训练。</p>
+            </details>
             <div id="retrainBox" class="retrain-box hidden" aria-live="polite"></div>
+            <div id="retrainProgress" class="retrain-progress hidden" aria-live="polite">
+              <div class="retrain-progress-bar"><span id="retrainProgressFill"></span></div>
+              <p id="retrainProgressText" class="retrain-progress-text"></p>
+            </div>
           </div>
         </div>
         <details class="export-details">
@@ -172,6 +183,6 @@
     <p>本地演示工具 · <a href="/static/help.html" target="_blank" rel="noopener">说明文档</a> · <a href="/docs" target="_blank" rel="noopener">API Docs</a></p>
   </footer>
 
-  <script src="/static/app.js?v=20261021splitD"></script>
+  <script src="/static/app.js?v=20261021oneclick"></script>
 </body>
 </html>

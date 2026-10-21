@@ -1039,3 +1039,45 @@ button.ghost.accent:hover {
   .brand-mark { width: 32px; height: 32px; font-size: 0.9rem; }
   .topbar h1 { font-size: 1rem; }
 }
+
+.retrain-advanced {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: #a16207;
+}
+.retrain-advanced summary {
+  cursor: pointer;
+  font-weight: 650;
+  color: #92400e;
+}
+.retrain-progress {
+  margin-top: 10px;
+}
+.retrain-progress.hidden { display: none; }
+.retrain-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #fde68a;
+  overflow: hidden;
+}
+.retrain-progress-bar span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+.retrain-progress-bar span.ok {
+  background: linear-gradient(90deg, #34d399, #059669);
+}
+.retrain-progress-bar span.err {
+  background: linear-gradient(90deg, #f87171, #dc2626);
+}
+.retrain-progress-text {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: #92400e;
+  font-weight: 600;
+}
+

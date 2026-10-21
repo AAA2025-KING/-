@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>使用说明 · 中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021splitD" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021oneclick" />
 </head>
 <body>
   <main class="card help-page">
@@ -46,8 +46,13 @@
 
     <section id="improve">
       <h2>纠错与再训</h2>
-      <p>还原表格若有错字：选中单元格 → 改正汉字 →「保存纠错」。攒够样本后点「准备再训」，在本机 Windows CUDA 运行提示的 PowerShell 命令短训 LoRA，再替换 <code>models/lora_tables</code> 并重启服务。</p>
-      <p>详见仓库 <code>docs/continuous_improve.md</code>。</p>
+      <ol>
+        <li>选中错误单元格 → 改正汉字 →「保存纠错」。</li>
+        <li>点 <strong>一键重训</strong>：自动合并样本、在本机 CUDA 后台短训 LoRA、复制到 <code>models/lora_tables</code>，并热卸载旧模型（下次翻译加载新适配器）。</li>
+        <li>进度在纠错面板内刷新；无 CUDA / 已在训练 / 尚无纠错时会明确提示。</li>
+      </ol>
+      <p>「准备再训」仍在高级选项中，仅合并并给出手动 PowerShell 命令。详见 <code>docs/continuous_improve.md</code>。</p>
+      <p class="hint">安全：仅在本机 Windows GPU 使用；<code>Start-BrailleApi.bat</code> 默认 <code>CBT_ALLOW_RETRAIN=1</code>。</p>
     </section>
 
     <h2 id="license">许可</h2>
@@ -60,6 +65,8 @@
       <li><code>POST /v1/detect</code> — 图片检测 / OCR</li>
       <li><code>POST /v1/pipeline</code> — 识别并翻译</li>
       <li><code>POST /v1/corrections</code> — 纠错入库</li>
+      <li><code>POST /v1/retrain</code> — 一键重训（需 CBT_ALLOW_RETRAIN + CUDA）</li>
+      <li><code>GET /v1/retrain/status</code> — 再训进度</li>
       <li>交互式文档：<a href="/docs">/docs</a>（OpenAPI）</li>
     </ul>
     <p>仓库内 Markdown 说明见 <code>docs/web-ui.md</code>。</p>

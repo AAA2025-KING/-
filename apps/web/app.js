@@ -31,9 +31,14 @@
   const correctCountEl = $("correctCount");
   const correctBraillePreview = $("correctBraillePreview");
   const btnSaveCorrect = $("btnSaveCorrect");
+  const btnOneClickRetrain = $("btnOneClickRetrain");
   const btnPrepareRetrain = $("btnPrepareRetrain");
   const btnRefreshCorrectStats = $("btnRefreshCorrectStats");
   const retrainBox = $("retrainBox");
+  const retrainProgress = $("retrainProgress");
+  const retrainProgressFill = $("retrainProgressFill");
+  const retrainProgressText = $("retrainProgressText");
+  let retrainPollTimer = null;
 
   const CELL_SEP = " | ";
   const ROW_SEP = " || ";
@@ -1159,6 +1164,152 @@
     retrainBox.textContent = text;
   }
 
+  function showRetrainHtml(html, kind) {
+    if (!retrainBox) return;
+    retrainBox.classList.remove("hidden", "ok", "warn", "err");
+    if (kind) retrainBox.classList.add(kind);
+    retrainBox.innerHTML = html;
+  }
+
+  function setRetrainProgress(st) {
+    if (!retrainProgress) return;
+    const state = (st && st.state) || "idle";
+    if (state === "running") {
+      retrainProgress.classList.remove("hidden");
+      const pct = typeof st.progress_pct === "number" ? st.progress_pct : null;
+      const step = st.step;
+      const maxS = st.max_steps;
+      if (retrainProgressFill) {
+        retrainProgressFill.style.width = (pct != null ? pct : 8) + "%";
+      }
+      if (retrainProgressText) {
+        retrainProgressText.textContent =
+          st.message ||
+          (step != null && maxS
+            ? "训练中… " + step + "/" + maxS
+            : "训练进行中…");
+      }
+    } else if (state === "succeeded" || state === "failed" || state === "dry_run_done") {
+      retrainProgress.classList.remove("hidden");
+      if (retrainProgressFill) {
+        retrainProgressFill.style.width = state === "succeeded" || state === "dry_run_done" ? "100%" : "100%";
+        retrainProgressFill.classList.toggle("err", state === "failed");
+        retrainProgressFill.classList.toggle("ok", state !== "failed");
+      }
+      if (retrainProgressText) {
+        retrainProgressText.textContent = st.message || state;
+      }
+    } else {
+      retrainProgress.classList.add("hidden");
+    }
+  }
+
+  function stopRetrainPoll() {
+    if (retrainPollTimer) {
+      clearInterval(retrainPollTimer);
+      retrainPollTimer = null;
+    }
+  }
+
+  async function pollRetrainStatusOnce() {
+    try {
+      const res = await fetch("/v1/retrain/status", { cache: "no-store" });
+      if (!res.ok) return null;
+      const st = await res.json();
+      setRetrainProgress(st);
+      const state = st.state || "idle";
+      if (state === "running") {
+        showRetrainBox(st.message || "训练进行中…", "warn");
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = true;
+      } else if (state === "succeeded") {
+        showRetrainHtml(
+          escapeHtml(st.message || "再训完成") +
+            (st.adapter_copy
+              ? "<br/>已复制到 <code>" +
+                escapeHtml((st.adapter_copy && st.adapter_copy.dest) || "models/lora_tables") +
+                "</code>"
+              : ""),
+          "ok"
+        );
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+        stopRetrainPoll();
+        await refreshCorrectStats();
+        await refreshHealth();
+      } else if (state === "failed") {
+        showRetrainBox(st.message || "再训失败", "err");
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+        stopRetrainPoll();
+      } else if (state === "dry_run_done") {
+        showRetrainBox(st.message || "dry-run 完成", "ok");
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+        stopRetrainPoll();
+      } else {
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+      }
+      return st;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function startRetrainPoll() {
+    stopRetrainPoll();
+    pollRetrainStatusOnce();
+    retrainPollTimer = setInterval(pollRetrainStatusOnce, 2500);
+  }
+
+  async function doOneClickRetrain(allowWithout) {
+    if (btnOneClickRetrain) btnOneClickRetrain.disabled = true;
+    showRetrainBox("正在合并纠错并启动一键重训…", "warn");
+    setRetrainProgress({ state: "running", message: "启动中…", progress_pct: 2 });
+    try {
+      const res = await fetch("/v1/retrain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          copy_to_models: true,
+          hot_reload: true,
+          allow_without_user_corrections: !!allowWithout,
+          include_user: true,
+          include_holdout_errors: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const detail = data.detail || res.statusText || "启动失败";
+      const detailStr =
+        typeof detail === "string" ? detail : JSON.stringify(detail);
+
+      if (res.status === 400 && /allow_without_user_corrections/.test(detailStr)) {
+        const ok = window.confirm(
+          "还没有网页纠错样本。\n\n是否确认仅用已有训练集 / holdout 纠错再训？\n（推荐先改正几个错格并「保存纠错」）"
+        );
+        if (ok) {
+          return doOneClickRetrain(true);
+        }
+        showRetrainBox("已取消。请先保存至少 1 条纠错。", "warn");
+        setRetrainProgress({ state: "idle" });
+        if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(detailStr);
+      }
+
+      metaEl.textContent = data.message || "一键重训已启动";
+      showRetrainBox(data.message || "一键重训已启动", "warn");
+      setRetrainProgress(data);
+      startRetrainPoll();
+      await refreshCorrectStats();
+    } catch (err) {
+      showRetrainBox("一键重训失败: " + err.message, "err");
+      metaEl.textContent = "一键重训失败: " + err.message;
+      setStatus("一键重训失败: " + err.message, "err");
+      setRetrainProgress({ state: "failed", message: err.message });
+      if (btnOneClickRetrain) btnOneClickRetrain.disabled = false;
+    }
+  }
+
   async function doSaveCorrect() {
     if (selR < 0 || selC < 0) {
       metaEl.textContent = "请先选择要纠正的单元格。";
@@ -1528,6 +1679,9 @@
   });
 
   if (btnSaveCorrect) btnSaveCorrect.addEventListener("click", doSaveCorrect);
+  if (btnOneClickRetrain) {
+    btnOneClickRetrain.addEventListener("click", () => doOneClickRetrain(false));
+  }
   if (btnPrepareRetrain) btnPrepareRetrain.addEventListener("click", doPrepareRetrain);
   if (btnRefreshCorrectStats) {
     btnRefreshCorrectStats.addEventListener("click", () => refreshCorrectStats());
@@ -1544,4 +1698,7 @@
   refreshHealth();
   refreshCorrectStats();
   refreshInputTableFromTextarea();
+  pollRetrainStatusOnce().then((st) => {
+    if (st && st.state === "running") startRetrainPoll();
+  });
 })();

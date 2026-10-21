@@ -80,6 +80,12 @@ echo.
 if not defined CBT_API_HOST set "CBT_API_HOST=127.0.0.1"
 if not defined CBT_API_PORT set "CBT_API_PORT=8000"
 
+REM 本机 Windows CUDA 一键重训（仅本地；勿在无 GPU / 共享服务器上开启）
+if not defined CBT_ALLOW_RETRAIN set "CBT_ALLOW_RETRAIN=1"
+echo [提示] CBT_ALLOW_RETRAIN=%CBT_ALLOW_RETRAIN% （网页「一键重训」可用；仅建议本机 GPU）
+echo.
+
+
 echo [3/3] 启动 uvicorn ...
 echo       浏览器打开 http://%CBT_API_HOST%:%CBT_API_PORT%/
 echo       API 文档   http://%CBT_API_HOST%:%CBT_API_PORT%/docs
