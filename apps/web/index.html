@@ -5,101 +5,114 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021ui2" />
+  <title>中文盲文翻译 · 工作台</title>
+  <link rel="stylesheet" href="/static/style.css?v=20261021splitD" />
 </head>
-<body>
-  <main class="card">
-    <header class="page-header">
-      <div class="page-header-text">
-        <div class="brand-row">
-          <span class="brand-mark" aria-hidden="true">六</span>
-          <h1>中文盲文翻译</h1>
+<body class="workspace">
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark" aria-hidden="true">六</span>
+      <div class="topbar-titles">
+        <h1>中文盲文翻译</h1>
+        <p class="topbar-sub">分栏工作台 · 输入 → 翻译 → 结果</p>
+      </div>
+    </div>
+    <section class="status status-inline" id="statusBox" aria-live="polite">正在检查服务状态…</section>
+    <a class="help-link" href="/static/help.html" target="_blank" rel="noopener">使用说明</a>
+  </header>
+
+  <div class="workspace-grid">
+    <!-- —— 左：输入 —— -->
+    <aside class="col col-input" aria-label="输入区">
+      <div class="col-head">
+        <h2 class="col-title">输入</h2>
+        <span class="col-badge">盲文 / OCR</span>
+      </div>
+
+      <section class="panel" aria-labelledby="sec-input">
+        <h3 id="sec-input" class="panel-title">盲文文本</h3>
+        <label for="braille" class="sr-only">盲文文本</label>
+        <textarea id="braille" rows="5" placeholder="粘贴 Unicode 盲文，例如：⠓⠊⠼ ⠍⠊⠼⠂&#10;表格：单元格用 | ，行用 || ；粘贴后自动成表"></textarea>
+
+        <div id="inputTableWrap" class="input-table-wrap hidden">
+          <div class="input-table-head">
+            <label class="input-table-label">输入表格（可编辑，自动同步文本）</label>
+            <button type="button" id="btnHideInputTable" class="ghost tiny">收起</button>
+          </div>
+          <div id="inputTableOut" class="table-out input-table-out"></div>
+          <p class="hint" id="inputTableHint">已识别表格格式，并勾选「按表格还原」。</p>
         </div>
-        <p class="sub">粘贴盲文或上传截图 → 翻译为汉字 · 支持表格还原与朗读</p>
-      </div>
-      <a class="help-link" href="/static/help.html" target="_blank" rel="noopener">使用说明</a>
-    </header>
 
-    <section class="status" id="statusBox" aria-live="polite">
-      正在检查服务状态…
-    </section>
-
-    <section class="panel" aria-labelledby="sec-input">
-      <h2 id="sec-input" class="panel-title">盲文输入</h2>
-
-      <label for="braille" class="sr-only">盲文文本</label>
-      <textarea id="braille" rows="4" placeholder="粘贴 Unicode 盲文，例如：⠓⠊⠼ ⠍⠊⠼⠂&#10;表格：单元格用 | ，行用 || ；粘贴后自动成表"></textarea>
-
-      <div id="inputTableWrap" class="input-table-wrap hidden">
-        <div class="input-table-head">
-          <label class="input-table-label">输入表格（可编辑，自动同步文本）</label>
-          <button type="button" id="btnHideInputTable" class="ghost tiny">收起</button>
+        <div class="field-grid">
+          <div class="field">
+            <label for="context">上下文（可选）</label>
+            <input id="context" type="text" placeholder="例如：成绩表表头" />
+          </div>
+          <div class="field field-backend">
+            <label for="backend">后端</label>
+            <select id="backend">
+              <option value="qwen8b" selected>qwen8b</option>
+              <option value="mt5">mt5</option>
+              <option value="auto">auto</option>
+            </select>
+          </div>
         </div>
-        <div id="inputTableOut" class="table-out input-table-out"></div>
-        <p class="hint" id="inputTableHint">已识别表格格式，并勾选「按表格还原」。</p>
-      </div>
 
-      <div class="field-grid">
-        <div class="field">
-          <label for="context">上下文（可选）</label>
-          <input id="context" type="text" placeholder="例如：成绩表表头" />
+        <div class="options-bar">
+          <label class="check">
+            <input type="checkbox" id="asTable" checked />
+            按表格还原
+          </label>
+          <div class="samples" role="group" aria-label="样例">
+            <span class="samples-label">样例</span>
+            <button type="button" class="chip" data-br="⠓⠊⠼ ⠍⠊⠼⠂" data-ctx="成绩表表头">姓名</button>
+            <button type="button" class="chip" data-br="⠬ ⠒" data-ctx="成绩表表头">语文</button>
+            <button type="button" class="chip" data-br="⠌⠦ ⠎⠧⠁" data-ctx="成绩表姓名">张三</button>
+            <button type="button" class="chip" data-br="⠙⠧ ⠛⠫⠆" data-ctx="销售表表头">单价</button>
+            <button type="button" class="chip chip-table"
+              data-sample="t01"
+              data-br="⠓⠊⠼ ⠍⠊⠼⠂ | ⠬ ⠒ | ⠱⠥ ⠓⠾ | ⠊⠼ ⠬⠄ || ⠌⠦ ⠎⠧⠁ | ⠼⠊⠃ | ⠼⠓⠓ | ⠼⠓⠑ || ⠇⠊ ⠎ | ⠼⠛⠓ | ⠼⠊⠑ | ⠼⠓⠚ || ⠶⠂ ⠥ | ⠼⠓⠑ | ⠼⠓⠃ | ⠼⠊⠚"
+              data-cells="[[&quot;⠓⠊⠼ ⠍⠊⠼⠂&quot;,&quot;⠬ ⠒&quot;,&quot;⠱⠥ ⠓⠾&quot;,&quot;⠊⠼ ⠬⠄&quot;],[&quot;⠌⠦ ⠎⠧⠁&quot;,&quot;⠼⠊⠃&quot;,&quot;⠼⠓⠓&quot;,&quot;⠼⠓⠑&quot;],[&quot;⠇⠊ ⠎&quot;,&quot;⠼⠛⠓&quot;,&quot;⠼⠊⠑&quot;,&quot;⠼⠓⠚&quot;],[&quot;⠶⠂ ⠥&quot;,&quot;⠼⠓⠑&quot;,&quot;⠼⠓⠃&quot;,&quot;⠼⠊⠚&quot;]]"
+              data-ctx="成绩表"
+              data-table="1">成绩表</button>
+            <button type="button" class="chip chip-table"
+              data-sample="subject_mon"
+              data-br="⠅⠢ ⠍⠥ | ⠌⠷ ⠊ || ⠬ ⠒ | ⠱⠥ ⠓⠾"
+              data-cells="[[&quot;⠅⠢ ⠍⠥&quot;,&quot;⠌⠷ ⠊&quot;],[&quot;⠬ ⠒&quot;,&quot;⠱⠥ ⠓⠾&quot;]]"
+              data-ctx="课程表"
+              data-table="1">科目周一</button>
+          </div>
         </div>
-        <div class="field field-backend">
-          <label for="backend">后端</label>
-          <select id="backend">
-            <option value="qwen8b" selected>qwen8b</option>
-            <option value="mt5">mt5</option>
-            <option value="auto">auto</option>
-          </select>
+
+        <div class="actions">
+          <button type="button" id="btnTranslate" class="primary">翻译</button>
+          <button type="button" id="btnClear" class="ghost">清空</button>
         </div>
-      </div>
+      </section>
 
-      <div class="options-bar">
-        <label class="check">
-          <input type="checkbox" id="asTable" checked />
-          按表格还原
-        </label>
-        <div class="samples" role="group" aria-label="样例">
-          <span class="samples-label">样例</span>
-          <button type="button" class="chip" data-br="⠓⠊⠼ ⠍⠊⠼⠂" data-ctx="成绩表表头">姓名</button>
-          <button type="button" class="chip" data-br="⠬ ⠒" data-ctx="成绩表表头">语文</button>
-          <button type="button" class="chip" data-br="⠌⠦ ⠎⠧⠁" data-ctx="成绩表姓名">张三</button>
-          <button type="button" class="chip" data-br="⠙⠧ ⠛⠫⠆" data-ctx="销售表表头">单价</button>
-          <button type="button" class="chip chip-table"
-            data-sample="t01"
-            data-br="⠓⠊⠼ ⠍⠊⠼⠂ | ⠬ ⠒ | ⠱⠥ ⠓⠾ | ⠊⠼ ⠬⠄ || ⠌⠦ ⠎⠧⠁ | ⠼⠊⠃ | ⠼⠓⠓ | ⠼⠓⠑ || ⠇⠊ ⠎ | ⠼⠛⠓ | ⠼⠊⠑ | ⠼⠓⠚ || ⠶⠂ ⠥ | ⠼⠓⠑ | ⠼⠓⠃ | ⠼⠊⠚"
-            data-cells="[[&quot;⠓⠊⠼ ⠍⠊⠼⠂&quot;,&quot;⠬ ⠒&quot;,&quot;⠱⠥ ⠓⠾&quot;,&quot;⠊⠼ ⠬⠄&quot;],[&quot;⠌⠦ ⠎⠧⠁&quot;,&quot;⠼⠊⠃&quot;,&quot;⠼⠓⠓&quot;,&quot;⠼⠓⠑&quot;],[&quot;⠇⠊ ⠎&quot;,&quot;⠼⠛⠓&quot;,&quot;⠼⠊⠑&quot;,&quot;⠼⠓⠚&quot;],[&quot;⠶⠂ ⠥&quot;,&quot;⠼⠓⠑&quot;,&quot;⠼⠓⠃&quot;,&quot;⠼⠊⠚&quot;]]"
-            data-ctx="成绩表"
-            data-table="1">成绩表</button>
-          <button type="button" class="chip chip-table"
-            data-sample="subject_mon"
-            data-br="⠅⠢ ⠍⠥ | ⠌⠷ ⠊ || ⠬ ⠒ | ⠱⠥ ⠓⠾"
-            data-cells="[[&quot;⠅⠢ ⠍⠥&quot;,&quot;⠌⠷ ⠊&quot;],[&quot;⠬ ⠒&quot;,&quot;⠱⠥ ⠓⠾&quot;]]"
-            data-ctx="课程表"
-            data-table="1">科目周一</button>
+      <section class="panel panel-ocr" aria-labelledby="sec-ocr">
+        <h3 id="sec-ocr" class="panel-title">图片识别 <span class="panel-tag">可选</span></h3>
+        <div class="row file-row">
+          <input id="imageFile" type="file" accept="image/*" />
+          <button type="button" id="btnPipeline" class="primary">识别并翻译</button>
         </div>
+        <p class="hint compact">支持 Unicode 截图、凸起点阵与空心/虚线教材图。<a href="/static/help.html#ocr" target="_blank" rel="noopener">OCR 说明</a></p>
+      </section>
+    </aside>
+
+    <!-- —— 右：输出 —— -->
+    <section class="col col-output" aria-label="结果区" aria-labelledby="sec-result">
+      <div class="col-head">
+        <h2 id="sec-result" class="col-title">结果</h2>
+        <span class="col-badge muted">汉字 / 表格</span>
       </div>
 
-      <div class="actions">
-        <button type="button" id="btnTranslate" class="primary">翻译</button>
-        <button type="button" id="btnClear" class="ghost">清空</button>
+      <div class="panel">
+        <h3 class="panel-title">汉字结果</h3>
+        <label for="result" class="sr-only">翻译结果</label>
+        <textarea id="result" rows="6" readonly placeholder="翻译结果将显示在这里"></textarea>
+        <p class="meta" id="meta"></p>
       </div>
-    </section>
-
-    <section class="panel panel-muted" aria-labelledby="sec-ocr">
-      <h2 id="sec-ocr" class="panel-title">图片识别 <span class="panel-tag">可选</span></h2>
-      <div class="row file-row">
-        <input id="imageFile" type="file" accept="image/*" />
-        <button type="button" id="btnPipeline" class="primary">识别并翻译</button>
-      </div>
-      <p class="hint compact">支持 Unicode 截图、凸起点阵与空心/虚线教材图。<a href="/static/help.html#ocr" target="_blank" rel="noopener">OCR 说明</a></p>
-    </section>
-
-    <section class="panel" aria-labelledby="sec-result">
-      <h2 id="sec-result" class="panel-title">汉字结果</h2>
-      <label for="result" class="sr-only">翻译结果</label>
-      <textarea id="result" rows="5" readonly placeholder="翻译结果将显示在这里"></textarea>
 
       <div id="tableWrap" class="table-wrap hidden">
         <div class="result-table-head">
@@ -149,24 +162,16 @@
         </details>
       </div>
 
-      <p class="meta" id="meta"></p>
-    </section>
-
-    <details class="help-panel">
-      <summary>使用说明（OCR · 表格 · 许可 · API）</summary>
-      <div class="help-panel-body">
-        <p><strong>OCR：</strong>① 网页/Unicode 盲文表格截图；② 凸起点阵照片；③ 空心/虚线教材图（自动实心化）。立体透视或严重模糊仍可能失败，可改粘贴盲文。接口 <code>/v1/pipeline</code>。</p>
-        <p><strong>表格：</strong>含 <code>|</code> / <code>||</code> 时自动成表并勾选「按表格还原」；整表翻译请保持勾选。</p>
-        <p><strong>许可：</strong>基座模型多为 <strong>CC BY-NC-SA</strong>（非商用）。</p>
-        <p><strong>API：</strong><code>GET /health</code> · <code>POST /v1/translate</code> · <code>POST /v1/detect</code> · <code>POST /v1/pipeline</code> · <code>POST /v1/corrections</code> · OpenAPI <code>/docs</code></p>
-        <p><a href="/static/help.html" target="_blank" rel="noopener">打开完整说明页</a></p>
+      <div class="output-empty" id="outputEmptyHint">
+        <p>在左侧粘贴盲文或上传图片，点「翻译」后结果会出现在这里。</p>
       </div>
-    </details>
+    </section>
+  </div>
 
-    <footer>
-      <p>本地演示工具 · <a href="/static/help.html" target="_blank" rel="noopener">说明文档</a> · <a href="/docs" target="_blank" rel="noopener">API Docs</a></p>
-    </footer>
-  </main>
-  <script src="/static/app.js?v=20261021ui2"></script>
+  <footer class="workspace-footer">
+    <p>本地演示工具 · <a href="/static/help.html" target="_blank" rel="noopener">说明文档</a> · <a href="/docs" target="_blank" rel="noopener">API Docs</a></p>
+  </footer>
+
+  <script src="/static/app.js?v=20261021splitD"></script>
 </body>
 </html>

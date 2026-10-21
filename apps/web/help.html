@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>使用说明 · 中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021ui2" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021splitD" />
 </head>
 <body>
   <main class="card help-page">
@@ -13,14 +13,14 @@
       <span class="brand-mark" aria-hidden="true">六</span>
       <h1>使用说明</h1>
     </div>
-    <p class="sub">中文盲文翻译网页端：输入流程、OCR 注意事项、表格还原、许可与 API。</p>
+    <p class="sub">分栏工作台：左侧输入盲文/OCR，右侧看汉字与表格。下文为流程、OCR、许可与 API。</p>
 
     <h2 id="workflow">主流程</h2>
     <ol>
-      <li>在「盲文输入」粘贴 Unicode 盲文；表格可用 <code>|</code> 分隔单元格、<code>||</code> 分隔行，粘贴后会自动成可编辑表格。</li>
+      <li>在左侧「输入」区粘贴 Unicode 盲文；表格可用 <code>|</code> 分隔单元格、<code>||</code> 分隔行，粘贴后会自动成可编辑表格。</li>
       <li>（可选）填写上下文，选择后端（默认 <code>qwen8b</code>）。</li>
       <li>整表或含分隔符内容请勾选「按表格还原」（含 <code>|</code> 时会自动勾选）。</li>
-      <li>点「翻译」；结果区显示汉字；若有表格可点击单元格定位，并用朗读按钮听读。</li>
+      <li>点「翻译」；右侧结果区显示汉字；若有表格可点击单元格定位，并用朗读按钮听读。</li>
       <li>（可选）上传图片后点「识别并翻译」，走 OCR → 翻译流水线。</li>
     </ol>
 

@@ -85,7 +85,10 @@
 
   function setStatus(text, kind) {
     statusBox.textContent = text;
-    statusBox.className = "status" + (kind ? " " + kind : "");
+    const base = statusBox.classList.contains("status-inline")
+      ? "status status-inline"
+      : "status";
+    statusBox.className = base + (kind ? " " + kind : "");
   }
 
   function isFlatTable(text) {
