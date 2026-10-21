@@ -47,6 +47,7 @@ from chinese_braille_toolkit import (  # noqa: E402
 )
 from chinese_braille_toolkit import tables as tables_mod  # noqa: E402
 from chinese_braille_toolkit.backends import qwen8b as qwen_backend  # noqa: E402
+from chinese_braille_toolkit import corrections as corr_mod  # noqa: E402
 
 DEFAULT_HOST = os.environ.get("CBT_API_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("CBT_API_PORT", "8000"))
@@ -110,6 +111,52 @@ class PipelineResponse(BaseModel):
     table: TablePayload | None = None
     elapsed_s: float = 0.0
 
+
+
+class CorrectionRequest(BaseModel):
+    braille: str = Field(..., min_length=1, description="单元格盲文")
+    zh: str = Field(..., min_length=1, description="纠正后的汉字")
+    pred: str | None = Field(None, description="模型原预测（错误）")
+    context: str | None = Field(None, description="可选上下文")
+    row: int | None = Field(None, description="行号（0-based）")
+    col: int | None = Field(None, description="列号（0-based）")
+    table_id: str | None = Field(None, description="表格/样例 id")
+    sample_id: str | None = Field(None, description="可选样本 id")
+    kind: str | None = Field("cell", description="cell / flat_partial 等")
+    meta: dict[str, Any] | None = Field(None, description="可选元数据")
+
+
+class CorrectionResponse(BaseModel):
+    ok: bool
+    id: str | None = None
+    path: str | None = None
+    count: int = 0
+    message: str = ""
+
+
+class CorrectionsStatsResponse(BaseModel):
+    user_corrections: int = 0
+    error_corrections: int = 0
+    train_tables: int = 0
+    train_tables_with_errors: int = 0
+    user_path: str = ""
+    merged_path: str = ""
+
+
+class MergeRequest(BaseModel):
+    include_user: bool = True
+    include_holdout_errors: bool = True
+
+
+class PrepareRetrainRequest(BaseModel):
+    max_steps: int | None = Field(None, ge=20, le=400)
+    include_user: bool = True
+    include_holdout_errors: bool = True
+
+
+class StartRetrainRequest(BaseModel):
+    max_steps: int | None = Field(None, ge=20, le=400)
+    dry_run: bool = False
 
 class HealthResponse(BaseModel):
     ok: bool
@@ -364,6 +411,189 @@ async def v1_pipeline(
         table=_table_payload(result.get("table")),
         elapsed_s=elapsed,
     )
+
+
+
+@app.post("/v1/corrections", response_model=CorrectionResponse)
+def v1_corrections_save(body: CorrectionRequest) -> CorrectionResponse:
+    """网页纠错入库：追加到 data/user_corrections.jsonl。"""
+    try:
+        record = corr_mod.build_correction_record(
+            braille=body.braille,
+            zh=body.zh,
+            pred=body.pred,
+            context=body.context,
+            row=body.row,
+            col=body.col,
+            table_id=body.table_id,
+            sample_id=body.sample_id,
+            kind=(body.kind or "cell"),
+            meta=body.meta,
+        )
+        info = corr_mod.append_correction(record)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+    return CorrectionResponse(
+        ok=True,
+        id=info.get("id"),
+        path=info.get("path"),
+        count=int(info.get("count") or 0),
+        message=f"已保存纠错，当前共 {info.get('count')} 条",
+    )
+
+
+@app.get("/v1/corrections/stats", response_model=CorrectionsStatsResponse)
+def v1_corrections_stats() -> CorrectionsStatsResponse:
+    s = corr_mod.correction_stats()
+    return CorrectionsStatsResponse(**s)
+
+
+@app.post("/v1/corrections/merge")
+def v1_corrections_merge(body: MergeRequest | None = None) -> dict[str, Any]:
+    """合并 user + holdout 纠错到 data/train_tables_with_errors.jsonl。"""
+    b = body or MergeRequest()
+    try:
+        return corr_mod.merge_into_train(
+            include_user=b.include_user,
+            include_holdout_errors=b.include_holdout_errors,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.post("/v1/retrain/prepare")
+def v1_retrain_prepare(body: PrepareRetrainRequest | None = None) -> dict[str, Any]:
+    """合并纠错并写出 outputs/retrain_request.json（含本机再训命令）。"""
+    b = body or PrepareRetrainRequest()
+    try:
+        mr = corr_mod.merge_into_train(
+            include_user=b.include_user,
+            include_holdout_errors=b.include_holdout_errors,
+        )
+        return corr_mod.write_retrain_request(mr, max_steps=b.max_steps)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.get("/v1/retrain/status")
+def v1_retrain_status() -> dict[str, Any]:
+    return corr_mod.read_retrain_status()
+
+
+@app.post("/v1/retrain")
+def v1_retrain_start(body: StartRetrainRequest | None = None) -> dict[str, Any]:
+    """在本机后台启动短训（需 CBT_ALLOW_RETRAIN=1 且 CUDA 可用）。"""
+    import subprocess
+    import sys as _sys
+
+    b = body or StartRetrainRequest()
+    if not corr_mod.retrain_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "未开启再训。请设环境变量 CBT_ALLOW_RETRAIN=1，"
+                "或改用 POST /v1/retrain/prepare + 本机 PowerShell 脚本。"
+            ),
+        )
+    if not corr_mod.cuda_available() and not b.dry_run:
+        raise HTTPException(
+            status_code=503,
+            detail="未检测到 CUDA，拒绝启动训练。请在 Windows GPU 机器上运行，或先 dry_run。",
+        )
+
+    prep = corr_mod.write_retrain_request(max_steps=b.max_steps)
+    hp = prep["hyperparams"]
+    py = _sys.executable
+    cmd = [
+        py,
+        str(corr_mod.ROOT / "scripts" / "train_lora_tables.py"),
+        "--config",
+        str(corr_mod.ROOT / hp["config"]),
+        "--data-path",
+        str(corr_mod.ROOT / hp["data_path"]),
+        "--output-dir",
+        str(corr_mod.ROOT / hp["output_dir"]),
+        "--bits",
+        str(hp["bits"]),
+        "--max-steps",
+        str(hp["max_steps"]),
+        "--optim",
+        str(hp["optim"]),
+        "--logging-steps",
+        str(hp["logging_steps"]),
+    ]
+    if b.dry_run:
+        cmd.append("--dry-run")
+
+    log_path = corr_mod.OUTPUTS_DIR / "retrain_api.log"
+    corr_mod.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if b.dry_run:
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(corr_mod.ROOT),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        status = {
+            "state": "dry_run_done",
+            "returncode": proc.returncode,
+            "cmd": cmd,
+            "stdout_tail": (proc.stdout or "")[-2000:],
+            "stderr_tail": (proc.stderr or "")[-2000:],
+            "message": "dry-run 完成（未真正训练）",
+        }
+        corr_mod.write_retrain_status(status)
+        return status
+
+    # Background train
+    try:
+        log_f = open(log_path, "a", encoding="utf-8")
+        log_f.write(f"\n--- start {_shanghai_safe()} ---\n")
+        log_f.write(" ".join(cmd) + "\n")
+        log_f.flush()
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(corr_mod.ROOT),
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    status = {
+        "state": "running",
+        "pid": proc.pid,
+        "cmd": cmd,
+        "log_path": str(log_path),
+        "output_dir": hp["output_dir"],
+        "max_steps": hp["max_steps"],
+        "message": f"已后台启动再训 PID={proc.pid}，日志 {log_path.name}",
+        "after": prep["commands"]["after_train_copy"],
+    }
+    corr_mod.write_retrain_status(status)
+    return status
+
+
+def _shanghai_safe() -> str:
+    return corr_mod._shanghai_iso()
 
 
 @app.get("/")

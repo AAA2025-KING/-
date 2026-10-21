@@ -27,6 +27,13 @@
   const inputTableWrap = $("inputTableWrap");
   const inputTableOut = $("inputTableOut");
   const btnHideInputTable = $("btnHideInputTable");
+  const correctZhEl = $("correctZh");
+  const correctCountEl = $("correctCount");
+  const correctBraillePreview = $("correctBraillePreview");
+  const btnSaveCorrect = $("btnSaveCorrect");
+  const btnPrepareRetrain = $("btnPrepareRetrain");
+  const btnRefreshCorrectStats = $("btnRefreshCorrectStats");
+  const retrainBox = $("retrainBox");
 
   const CELL_SEP = " | ";
   const ROW_SEP = " || ";
@@ -693,10 +700,51 @@
     return String(tableCells[r][c]);
   }
 
+  function brailleCellText(r, c) {
+    if (!inputCells[r] || inputCells[r][c] == null) return "";
+    return String(inputCells[r][c]);
+  }
+
+  function syncCorrectPanel() {
+    if (!correctBraillePreview) return;
+    if (selR < 0 || selC < 0) {
+      correctBraillePreview.innerHTML =
+        "选中单元格后可改正汉字并保存为训练样本。";
+      if (correctZhEl && document.activeElement !== correctZhEl) {
+        correctZhEl.value = "";
+      }
+      return;
+    }
+    const br = brailleCellText(selR, selC);
+    const pred = cellText(selR, selC);
+    correctBraillePreview.innerHTML =
+      "第 " +
+      (selR + 1) +
+      " 行 " +
+      (selC + 1) +
+      " 列 · 盲文 <code>" +
+      escapeHtml(br || "（无）") +
+      "</code> · 原译 <code>" +
+      escapeHtml(pred || "（空）") +
+      "</code>";
+    if (correctZhEl && document.activeElement !== correctZhEl) {
+      correctZhEl.value = pred || "";
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function updateCellPos() {
     if (!cellPos) return;
     if (selR < 0 || selC < 0) {
       cellPos.textContent = "点击或用方向键选择单元格";
+      syncCorrectPanel();
       return;
     }
     const text = cellText(selR, selC);
@@ -704,6 +752,7 @@
       "第 " + (selR + 1) + " 行，第 " + (selC + 1) + " 列 · 内容：" + (text || "（空）");
     if (jumpRow) jumpRow.value = String(selR + 1);
     if (jumpCol) jumpCol.value = String(selC + 1);
+    syncCorrectPanel();
   }
 
   function clearHighlights() {
@@ -1079,6 +1128,150 @@
     selectCell(r - 1, c - 1);
   }
 
+
+  async function refreshCorrectStats() {
+    try {
+      const res = await fetch("/v1/corrections/stats", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const s = await res.json();
+      const n = s.user_corrections || 0;
+      if (correctCountEl) {
+        correctCountEl.textContent =
+          "纠错 " + n + " 条" +
+          (s.train_tables_with_errors
+            ? " · 合并集 " + s.train_tables_with_errors
+            : "");
+      }
+      return s;
+    } catch (err) {
+      if (correctCountEl) correctCountEl.textContent = "纠错计数不可用";
+      return null;
+    }
+  }
+
+  function showRetrainBox(text, kind) {
+    if (!retrainBox) return;
+    retrainBox.classList.remove("hidden", "ok", "warn", "err");
+    if (kind) retrainBox.classList.add(kind);
+    retrainBox.textContent = text;
+  }
+
+  async function doSaveCorrect() {
+    if (selR < 0 || selC < 0) {
+      metaEl.textContent = "请先选择要纠正的单元格。";
+      return;
+    }
+    const br = (brailleCellText(selR, selC) || "").trim();
+    const pred = cellText(selR, selC);
+    const zh = ((correctZhEl && correctZhEl.value) || "").trim();
+    if (!br) {
+      metaEl.textContent = "该格没有对应盲文（请用输入表格或带 | 的盲文翻译）。";
+      return;
+    }
+    if (!zh) {
+      metaEl.textContent = "请填写正确汉字。";
+      if (correctZhEl) correctZhEl.focus();
+      return;
+    }
+    if (zh === String(pred || "").trim()) {
+      metaEl.textContent = "与原译相同，无需保存。请先改正汉字。";
+      return;
+    }
+    if (btnSaveCorrect) btnSaveCorrect.disabled = true;
+    try {
+      const payload = {
+        braille: br,
+        zh: zh,
+        pred: pred || null,
+        context: ((contextEl && contextEl.value) || "").trim() || null,
+        row: selR,
+        col: selC,
+        table_id: "web",
+        kind: "cell",
+        meta: {
+          backend: (backendEl && backendEl.value) || null,
+        },
+      };
+      const res = await fetch("/v1/corrections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || res.statusText || "保存失败";
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      // Update visible cell to corrected text
+      if (tableCells[selR]) {
+        tableCells[selR][selC] = zh;
+        ensureCellAttrsFromCells();
+        bindTableEvents();
+        selectCell(selR, selC, { focus: false });
+        mdOut.value = cellsToMarkdown(tableCells);
+        csvOut.value = cellsToCsvClient(tableCells);
+        if (resultEl) resultEl.value = cellsToFlat(tableCells);
+      }
+      metaEl.textContent = data.message || ("已保存纠错（共 " + (data.count || "?") + " 条）");
+      await refreshCorrectStats();
+    } catch (err) {
+      metaEl.textContent = "纠错保存失败: " + err.message;
+      setStatus("纠错保存失败: " + err.message, "err");
+    } finally {
+      if (btnSaveCorrect) btnSaveCorrect.disabled = false;
+    }
+  }
+
+  async function doPrepareRetrain() {
+    if (btnPrepareRetrain) btnPrepareRetrain.disabled = true;
+    showRetrainBox("正在合并纠错并生成再训说明…", "warn");
+    try {
+      const res = await fetch("/v1/retrain/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_user: true, include_holdout_errors: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || res.statusText || "准备失败";
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
+      const n = (data.merge && data.merge.merged) || "?";
+      const userN = (data.merge && data.merge.user_corrections) || 0;
+      const cmd =
+        (data.commands && data.commands.powershell_one_liner) ||
+        "powershell -ExecutionPolicy Bypass -File scripts\\windows\\retrain_from_corrections.ps1";
+      const after =
+        (data.commands && data.commands.after_train_copy) || "";
+      const msg =
+        "已合并 " +
+        n +
+        " 条训练样本（含用户纠错 " +
+        userN +
+        " 条）。\n请在本机 Windows CUDA 环境运行：";
+      if (retrainBox) {
+        retrainBox.classList.remove("hidden", "ok", "warn", "err");
+        retrainBox.classList.add("ok");
+        retrainBox.innerHTML =
+          escapeHtml(msg).replace(/\n/g, "<br/>") +
+          '<code class="retrain-cmd">' +
+          escapeHtml(cmd) +
+          "</code>" +
+          (after
+            ? "<p style=\"margin:8px 0 0\">" + escapeHtml(after) + "</p>"
+            : "");
+      }
+      metaEl.textContent =
+        "再训已准备：合并 " + n + " 条。详见下方命令。";
+      await refreshCorrectStats();
+    } catch (err) {
+      showRetrainBox("准备再训失败: " + err.message, "err");
+      metaEl.textContent = "准备再训失败: " + err.message;
+    } finally {
+      if (btnPrepareRetrain) btnPrepareRetrain.disabled = false;
+    }
+  }
+
   async function refreshHealth() {
     try {
       const res = await fetch("/health", { cache: "no-store" });
@@ -1331,6 +1524,21 @@
     }
   });
 
+  if (btnSaveCorrect) btnSaveCorrect.addEventListener("click", doSaveCorrect);
+  if (btnPrepareRetrain) btnPrepareRetrain.addEventListener("click", doPrepareRetrain);
+  if (btnRefreshCorrectStats) {
+    btnRefreshCorrectStats.addEventListener("click", () => refreshCorrectStats());
+  }
+  if (correctZhEl) {
+    correctZhEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doSaveCorrect();
+      }
+    });
+  }
+
   refreshHealth();
+  refreshCorrectStats();
   refreshInputTableFromTextarea();
 })();

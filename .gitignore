@@ -85,3 +85,10 @@ scripts/_download_qwen8b.py
 scripts/_download_qwen8b_urllib.py
 scripts/_speedtest_dl.py
 scripts/_t01_acc_check.py
+
+# Local web corrections & retrain status (regenerated on machine)
+data/user_corrections.jsonl
+outputs/retrain_request.json
+outputs/retrain_status.json
+outputs/retrain_api.log
+outputs/lora_tables_from_corrections/

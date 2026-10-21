@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>使用说明 · 中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021ui1" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021ci1" />
 </head>
 <body>
   <main class="card help-page">
@@ -56,6 +56,13 @@
     <footer>
       <p><a href="/">返回翻译页</a> · <a href="/docs">API Docs</a></p>
     </footer>
-  </main>
+  
+    <section id="improve">
+      <h2>纠错与再训</h2>
+      <p>还原表格若有错字：选中单元格 → 改正汉字 →「保存纠错」。攒够样本后点「准备再训」，在本机 Windows CUDA 运行提示的 PowerShell 命令短训 LoRA，再替换 <code>models/lora_tables</code> 并重启服务。</p>
+      <p>详见仓库 <code>docs/continuous_improve.md</code>。</p>
+    </section>
+
+</main>
 </body>
 </html>

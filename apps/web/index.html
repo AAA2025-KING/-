@@ -6,7 +6,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021ui1" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021ci1" />
 </head>
 <body>
   <main class="card">
@@ -119,6 +119,23 @@
             <button type="button" id="btnSpeakStop" class="ghost">停止</button>
           </div>
           <p id="ttsHint" class="hint hidden">当前浏览器不支持语音合成（SpeechSynthesis），无法朗读。</p>
+          <div class="correct-panel" id="correctPanel">
+            <div class="correct-panel-head">
+              <h4 class="correct-title">纠错入库</h4>
+              <span class="correct-count" id="correctCount">纠错 0 条</span>
+            </div>
+            <p class="correct-preview" id="correctBraillePreview">选中单元格后可改正汉字并保存为训练样本。</p>
+            <div class="correct-row">
+              <label for="correctZh">正确汉字</label>
+              <input id="correctZh" type="text" placeholder="改正后的汉字" autocomplete="off" />
+              <button type="button" id="btnSaveCorrect" class="primary">保存纠错</button>
+            </div>
+            <div class="correct-row">
+              <button type="button" id="btnPrepareRetrain" class="ghost accent">准备再训</button>
+              <button type="button" id="btnRefreshCorrectStats" class="ghost tiny">刷新计数</button>
+            </div>
+            <div id="retrainBox" class="retrain-box hidden" aria-live="polite"></div>
+          </div>
         </div>
         <details class="export-details">
           <summary>导出 Markdown / CSV</summary>
@@ -138,7 +155,7 @@
         <p><strong>OCR：</strong>① 网页/Unicode 盲文表格截图（切格读 U+2800）；② 凸起点阵照片（实心圆点）。空心圈教材图或模糊照可能失败，可改粘贴盲文。接口 <code>/v1/pipeline</code>。</p>
         <p><strong>表格：</strong>含 <code>|</code> / <code>||</code> 时自动成表并勾选「按表格还原」；整表翻译请保持勾选。</p>
         <p><strong>许可：</strong>基座模型多为 <strong>CC BY-NC-SA</strong>（非商用）。</p>
-        <p><strong>API：</strong><code>GET /health</code> · <code>POST /v1/translate</code> · <code>POST /v1/detect</code> · <code>POST /v1/pipeline</code> · OpenAPI <code>/docs</code></p>
+        <p><strong>API：</strong><code>GET /health</code> · <code>POST /v1/translate</code> · <code>POST /v1/detect</code> · <code>POST /v1/pipeline</code> · <code>POST /v1/corrections</code> · OpenAPI <code>/docs</code></p>
         <p><a href="/static/help.html" target="_blank" rel="noopener">打开完整说明页</a></p>
       </div>
     </details>
@@ -147,6 +164,6 @@
       <p>本地演示工具 · <a href="/static/help.html" target="_blank" rel="noopener">说明文档</a> · <a href="/docs" target="_blank" rel="noopener">API Docs</a></p>
     </footer>
   </main>
-  <script src="/static/app.js?v=20261021ui1"></script>
+  <script src="/static/app.js?v=20261021ci1"></script>
 </body>
 </html>

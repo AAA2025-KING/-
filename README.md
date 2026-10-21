@@ -214,3 +214,7 @@ chinese-braille-toolkit/
 ## 状态
 
 Pre-alpha（`0.1.0a1`）。API 与网页已可用；无 GPU / 无权重时翻译返回脚手架字符串，OCR 与表格路径仍可联调。
+
+## 持续优化（纠错再训）
+
+网页单元格纠错 → 合并训练集 → Windows CUDA 短训 LoRA：见 [docs/continuous_improve.md](docs/continuous_improve.md)。
