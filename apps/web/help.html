@@ -4,12 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>使用说明 · 中文盲文翻译</title>
-  <link rel="stylesheet" href="/static/style.css?v=20261021ci1" />
+  <link rel="stylesheet" href="/static/style.css?v=20261021ui2" />
 </head>
 <body>
   <main class="card help-page">
     <a class="help-back" href="/">← 返回翻译页</a>
-    <h1>使用说明</h1>
+    <div class="brand-row">
+      <span class="brand-mark" aria-hidden="true">六</span>
+      <h1>使用说明</h1>
+    </div>
     <p class="sub">中文盲文翻译网页端：输入流程、OCR 注意事项、表格还原、许可与 API。</p>
 
     <h2 id="workflow">主流程</h2>
@@ -41,6 +44,12 @@
       <li>Markdown / CSV 在结果区折叠面板中导出。</li>
     </ul>
 
+    <section id="improve">
+      <h2>纠错与再训</h2>
+      <p>还原表格若有错字：选中单元格 → 改正汉字 →「保存纠错」。攒够样本后点「准备再训」，在本机 Windows CUDA 运行提示的 PowerShell 命令短训 LoRA，再替换 <code>models/lora_tables</code> 并重启服务。</p>
+      <p>详见仓库 <code>docs/continuous_improve.md</code>。</p>
+    </section>
+
     <h2 id="license">许可</h2>
     <p>本工具演示用途。默认所用基座模型许可多为 <strong>CC BY-NC-SA</strong>，仅限<strong>非商业</strong>使用。请同时遵守仓库 <code>LICENSE</code> 与上游模型条款。</p>
 
@@ -50,6 +59,7 @@
       <li><code>POST /v1/translate</code> — 盲文 → 汉字（可 <code>as_table</code>）</li>
       <li><code>POST /v1/detect</code> — 图片检测 / OCR</li>
       <li><code>POST /v1/pipeline</code> — 识别并翻译</li>
+      <li><code>POST /v1/corrections</code> — 纠错入库</li>
       <li>交互式文档：<a href="/docs">/docs</a>（OpenAPI）</li>
     </ul>
     <p>仓库内 Markdown 说明见 <code>docs/web-ui.md</code>。</p>
@@ -57,13 +67,6 @@
     <footer>
       <p><a href="/">返回翻译页</a> · <a href="/docs">API Docs</a></p>
     </footer>
-  
-    <section id="improve">
-      <h2>纠错与再训</h2>
-      <p>还原表格若有错字：选中单元格 → 改正汉字 →「保存纠错」。攒够样本后点「准备再训」，在本机 Windows CUDA 运行提示的 PowerShell 命令短训 LoRA，再替换 <code>models/lora_tables</code> 并重启服务。</p>
-      <p>详见仓库 <code>docs/continuous_improve.md</code>。</p>
-    </section>
-
-</main>
+  </main>
 </body>
 </html>
