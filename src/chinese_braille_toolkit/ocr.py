@@ -142,6 +142,162 @@ def _detect_dots(gray: Any, cv2: Any, np: Any) -> list[tuple[float, float, float
     return dots
 
 
+
+def _normalize_ink_gray(gray: Any, np: Any) -> tuple[Any, bool]:
+    """Return (light-bg/dark-ink gray, was_inverted)."""
+    mean = float(np.mean(gray))
+    if mean < 127:
+        return 255 - gray, True
+    return gray.copy(), False
+
+
+def _ink_binary(
+    work: Any,
+    cv2: Any,
+    *,
+    close_dashes: bool = False,
+) -> Any:
+    """Adaptive threshold to white-ink / black-bg binary; optional dash closing."""
+    blurred = cv2.GaussianBlur(work, (5, 5), 0)
+    binary = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        21,
+        8,
+    )
+    open_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_k, iterations=1)
+    if close_dashes:
+        # Connect short gaps in dashed / broken ring outlines before hole find.
+        close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_k, iterations=2)
+    return binary
+
+
+def _count_hollow_ring_holes(gray: Any, cv2: Any, np: Any) -> int:
+    """Count braille-sized holes inside ring-like ink (CCOMP children)."""
+    work, _ = _normalize_ink_gray(gray, np)
+    h, w = work.shape[:2]
+    closed = _ink_binary(work, cv2, close_dashes=True)
+    _contours, hier = cv2.findContours(closed, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if hier is None:
+        return 0
+    hier_arr = hier[0]
+    max_r = min(h, w) * 0.08
+    n = 0
+    for i, cnt in enumerate(_contours):
+        if hier_arr[i][3] < 0:
+            continue
+        area = cv2.contourArea(cnt)
+        if area < 4:
+            continue
+        (_cx, _cy), radius = cv2.minEnclosingCircle(cnt)
+        if 1.0 <= radius <= max_r * 0.85:
+            n += 1
+    return n
+
+
+def solidify_hollow_rings(gray: Any, cv2: Any | None = None, np: Any | None = None) -> Any:
+    """Turn hollow / dashed braille rings into solid dark disks.
+
+    Textbook charts often draw raised dots as empty circles or dashed outlines.
+    Classical filled-dot OCR rejects those; this preprocess paints solid blobs at
+    ring centers (hole centers in a CCOMP hierarchy, plus bright-interior
+    top-level rings after mild morphological closing).
+
+    Returns a new grayscale image (same polarity as input). Does not modify
+    ``gray`` in place.
+    """
+    if cv2 is None or np is None:
+        cv2, np = _require_cv()
+    work, inverted = _normalize_ink_gray(gray, np)
+    h, w = work.shape[:2]
+    closed = _ink_binary(work, cv2, close_dashes=True)
+    contours, hier = cv2.findContours(closed, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    out = work.copy()
+    if hier is None:
+        return (255 - out) if inverted else out
+
+    hier_arr = hier[0]
+    max_r = min(h, w) * 0.08
+    centers: list[tuple[float, float, float]] = []
+
+    def _paint(cx: float, cy: float, radius: float) -> None:
+        if radius < 1.5 or radius > max_r:
+            return
+        for x, y, rr in centers:
+            lim = max(radius, rr) * 0.7
+            if (cx - x) ** 2 + (cy - y) ** 2 < lim * lim:
+                return
+        x0, y0 = int(round(cx)), int(round(cy))
+        rad_draw = max(2, int(round(radius)))
+        cv2.circle(out, (x0, y0), rad_draw, 0, thickness=-1)
+        centers.append((cx, cy, radius))
+
+    for i, cnt in enumerate(contours):
+        area = float(cv2.contourArea(cnt))
+        (cx, cy), radius = cv2.minEnclosingCircle(cnt)
+        peri = float(cv2.arcLength(cnt, True)) or 1.0
+        circularity = 4.0 * float(np.pi) * area / (peri * peri)
+        parent = int(hier_arr[i][3])
+        child = int(hier_arr[i][2])
+
+        # Hole inside a ring outline → fill slightly larger than the hole.
+        if parent >= 0:
+            if circularity < 0.3 or area < 4:
+                continue
+            if radius < 1.0 or radius > max_r * 0.85:
+                continue
+            _paint(float(cx), float(cy), float(radius) * 1.35)
+            continue
+
+        # Top-level: dashed arcs that closed into a near-disk with bright center.
+        if child >= 0:
+            # Holes already handled; skip large merged parents.
+            continue
+        if radius < 1.5 or radius > max_r:
+            continue
+        if circularity < 0.28 or area < 8 or area > float(h * w) * 0.02:
+            continue
+        r_in = max(1, int(round(radius * 0.35)))
+        x0, y0 = int(round(cx)), int(round(cy))
+        y1, y2 = max(0, y0 - r_in), min(h, y0 + r_in + 1)
+        x1, x2 = max(0, x0 - r_in), min(w, x0 + r_in + 1)
+        patch = work[y1:y2, x1:x2]
+        if patch.size == 0:
+            continue
+        imean = float(np.mean(patch))
+        circle_area = float(np.pi * radius * radius)
+        fill_ratio = float(area / circle_area) if circle_area > 0 else 0.0
+        if imean > 110.0 or fill_ratio < 0.55:
+            _paint(float(cx), float(cy), float(radius) * 0.85)
+
+    return (255 - out) if inverted else out
+
+
+def _should_solidify_hollow(
+    gray: Any,
+    filled_dots: list[tuple[float, float, float]],
+    cv2: Any,
+    np: Any,
+) -> bool:
+    """Auto: solidify when filled-dot OCR is weak vs hollow-ring evidence.
+
+    Skips mixed charts (filled = raised, hollow = unraised) that already yield
+    many solid dots — solidifying those hollow rings would invent false dots.
+    """
+    n_solid = len(filled_dots)
+    if n_solid < 3:
+        return True
+    n_holes = _count_hollow_ring_holes(gray, cv2, np)
+    if n_holes >= 6 and n_solid < n_holes * 0.35:
+        return True
+    return False
+
+
+
 def _cluster_rows(ys: list[float], tol: float) -> list[list[int]]:
     """Cluster point indices by y into horizontal rows."""
     order = sorted(range(len(ys)), key=lambda i: ys[i])
@@ -381,17 +537,53 @@ def _rows_to_braille_text(
     return " || ".join(flat_rows)
 
 
-def _opencv_detect(image: PathLike | Any) -> dict[str, Any]:
+def _opencv_detect(
+    image: PathLike | Any,
+    *,
+    solidify_hollow: bool | str = True,
+) -> dict[str, Any]:
+    """Filled-dot OCR; optionally solidify hollow/dashed rings and retry.
+
+    ``solidify_hollow``:
+      - True / ``"auto"``: solidify only when the first pass is weak or the
+        image looks like hollow/dashed line-art (many ring holes, few solids).
+      - ``"always"``: always run solidify and keep the denser dot set.
+      - False / ``"off"``: never solidify (mixed filled+hollow charts stay safe).
+
+    Unicode digital-table screenshots never reach this path.
+    """
     cv2, np = _require_cv()
     gray = _load_gray(image, cv2, np)
     dots = _detect_dots(gray, cv2, np)
+    used_solidify = False
+
+    flag = solidify_hollow
+    if isinstance(flag, str):
+        flag_l = flag.strip().lower()
+        always = flag_l in {"always", "force", "on"}
+        auto_on = flag_l in {"auto", "true", "yes", "1"}
+        off = flag_l in {"off", "false", "no", "0"}
+    else:
+        always = False
+        auto_on = bool(flag)
+        off = flag is False
+
+    if not off and (always or (auto_on and _should_solidify_hollow(gray, dots, cv2, np))):
+        solidified = solidify_hollow_rings(gray, cv2, np)
+        dots2 = _detect_dots(solidified, cv2, np)
+        if always or len(dots2) > len(dots):
+            dots = dots2
+            used_solidify = True
+
+    method = "opencv_dots_solidified" if used_solidify else "opencv_dots"
     if not dots:
         return {
             "braille": "",
             "rows": [],
-            "method": "opencv_dots",
+            "method": method,
             "confidence": 0.0,
             "detail": "no dots found",
+            "solidified": used_solidify,
         }
     cell_rows, conf, row_xs = _dots_to_cells(dots, np)
     # Prefer flat table when multiple cells per row
@@ -402,10 +594,11 @@ def _opencv_detect(image: PathLike | Any) -> dict[str, Any]:
     return {
         "braille": text or lined,
         "rows": cell_rows,
-        "method": "opencv_dots",
+        "method": method,
         "confidence": round(float(conf), 3),
         "lined": lined,
         "n_dots": len(dots),
+        "solidified": used_solidify,
     }
 
 
@@ -753,9 +946,19 @@ def detect_braille_detailed(
             if mode != "auto" or uni.get("method") == "digital_table_unicode":
                 return uni
 
+    # Photo / line-art branch (skip Unicode digital path's solidify).
+    solidify_flag: bool | str = True
+    if mode in {"solidify", "hollow", "dashed"}:
+        mode = "opencv"
+        solidify_flag = "always"
+    elif mode in {"opencv", "dots"}:
+        solidify_flag = True
+    elif mode == "auto":
+        solidify_flag = True
+
     if mode in {"auto", "opencv", "dots"}:
         try:
-            result = _opencv_detect(image)
+            result = _opencv_detect(image, solidify_hollow=solidify_flag)
             if result.get("braille") or mode != "auto":
                 if (
                     mode == "auto"
@@ -806,7 +1009,7 @@ def detect_braille(image: PathLike | Any, mode: str = "auto") -> str:
     image:
         Path, ndarray, or PIL Image.
     mode:
-        ``auto`` | ``opencv`` | ``unicode``.
+        ``auto`` | ``opencv`` | ``unicode`` | ``solidify`` (force hollow solidify).
     """
     if _stub_enabled():
         name = Path(image).name if isinstance(image, (str, Path)) else "array"

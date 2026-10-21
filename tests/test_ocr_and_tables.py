@@ -352,3 +352,82 @@ def test_ocr_digital_table_screenshot():
     assert grid[0][1] == "⠬ ⠒"
     assert grid[1][1] == "⠼⠊⠃"
     assert grid[2][0] == "⠇⠊ ⠎"
+
+
+def _synthetic_hollow_dashed_braille():
+    """White page with hollow + dashed raised dots (no filled disks)."""
+    import cv2
+    import numpy as np
+
+    img = np.full((140, 280), 255, np.uint8)
+    # Cell 1: ⠓ (dots 1,2,5) as hollow rings
+    pos = [(50, 40), (50, 60), (50, 80), (70, 40), (70, 60), (70, 80)]
+    for i in (0, 1, 4):
+        cv2.circle(img, pos[i], 7, 0, 2)
+    # Cell 2: ⠁ (dot 1) as dashed ring
+    cx, cy, r = 140, 40, 7
+    pts = [
+        (int(cx + r * np.cos(np.deg2rad(a))), int(cy + r * np.sin(np.deg2rad(a))))
+        for a in range(0, 360, 3)
+    ]
+    for i in range(0, len(pts) - 1, 6):
+        cv2.line(img, pts[i], pts[min(i + 3, len(pts) - 1)], 0, 2)
+    # Cell 3: ⠛ (dots 1,2,4,5) thin hollow rings
+    pos3 = [(220, 40), (220, 60), (220, 80), (240, 40), (240, 60), (240, 80)]
+    for i in (0, 1, 3, 4):
+        cv2.circle(img, pos3[i], 6, 0, 1)
+    return img
+
+
+def test_ocr_hollow_and_dashed_solidify():
+    """Hollow/dashed textbook rings become detectable after solidify preprocess."""
+    pytest.importorskip("cv2")
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+
+    from chinese_braille_toolkit.ocr import (
+        _detect_dots,
+        _require_cv,
+        detect_braille_detailed,
+        solidify_hollow_rings,
+    )
+
+    cv2, np = _require_cv()
+    img = _synthetic_hollow_dashed_braille()
+    # Raw filled-dot detector should see little or nothing
+    assert len(_detect_dots(img, cv2, np)) < 3
+
+    solidified = solidify_hollow_rings(img, cv2, np)
+    assert len(_detect_dots(solidified, cv2, np)) >= 6
+
+    detail = detect_braille_detailed(img, mode="solidify")
+    assert detail.get("solidified") is True
+    assert detail["method"] == "opencv_dots_solidified"
+    braille = detail.get("braille") or ""
+    rows = detail.get("rows") or []
+    joined = braille + "".join("".join(r) for r in rows)
+    # Expect ⠓, ⠁, ⠛ among detected cells
+    for ch in ("⠓", "⠁", "⠛"):
+        assert ch in joined, f"missing {ch!r} in {detail}"
+
+    # Auto path should also solidify (few solid dots)
+    auto = detect_braille_detailed(img, mode="auto")
+    assert auto.get("solidified") is True
+    assert auto["method"] == "opencv_dots_solidified"
+
+
+def test_ocr_mixed_filled_hollow_does_not_auto_solidify():
+    """Filled=raised / hollow=unraised charts must keep opencv_dots (no invent)."""
+    pytest.importorskip("cv2")
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    assert FILLED_HOLLOW.is_file(), f"missing sample {FILLED_HOLLOW}"
+
+    from chinese_braille_toolkit.ocr import detect_braille_detailed
+
+    detail = detect_braille_detailed(FILLED_HOLLOW, mode="opencv")
+    assert detail["method"] == "opencv_dots"
+    assert detail.get("solidified") is False
+    rows = detail.get("rows") or []
+    assert len(rows) == 1
+

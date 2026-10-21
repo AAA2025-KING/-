@@ -90,7 +90,7 @@
         <input id="imageFile" type="file" accept="image/*" />
         <button type="button" id="btnPipeline" class="primary">识别并翻译</button>
       </div>
-      <p class="hint compact">支持 Unicode 截图与凸起点阵照片。<a href="/static/help.html#ocr" target="_blank" rel="noopener">OCR 说明</a></p>
+      <p class="hint compact">支持 Unicode 截图、凸起点阵与空心/虚线教材图。<a href="/static/help.html#ocr" target="_blank" rel="noopener">OCR 说明</a></p>
     </section>
 
     <section class="panel" aria-labelledby="sec-result">
@@ -152,7 +152,7 @@
     <details class="help-panel">
       <summary>使用说明（OCR · 表格 · 许可 · API）</summary>
       <div class="help-panel-body">
-        <p><strong>OCR：</strong>① 网页/Unicode 盲文表格截图（切格读 U+2800）；② 凸起点阵照片（实心圆点）。空心圈教材图或模糊照可能失败，可改粘贴盲文。接口 <code>/v1/pipeline</code>。</p>
+        <p><strong>OCR：</strong>① 网页/Unicode 盲文表格截图；② 凸起点阵照片；③ 空心/虚线教材图（自动实心化）。立体透视或严重模糊仍可能失败，可改粘贴盲文。接口 <code>/v1/pipeline</code>。</p>
         <p><strong>表格：</strong>含 <code>|</code> / <code>||</code> 时自动成表并勾选「按表格还原」；整表翻译请保持勾选。</p>
         <p><strong>许可：</strong>基座模型多为 <strong>CC BY-NC-SA</strong>（非商用）。</p>
         <p><strong>API：</strong><code>GET /health</code> · <code>POST /v1/translate</code> · <code>POST /v1/detect</code> · <code>POST /v1/pipeline</code> · <code>POST /v1/corrections</code> · OpenAPI <code>/docs</code></p>

@@ -22,13 +22,14 @@
     </ol>
 
     <h2 id="ocr">图片 OCR 说明</h2>
-    <p>支持两类图：</p>
+    <p>支持这些图：</p>
     <ul>
       <li><strong>网页 / Unicode 盲文表格截图</strong>：自动切格并读取 U+2800 段盲文字形。</li>
-      <li><strong>凸起点阵照片</strong>：需要较清晰的<strong>实心圆点</strong>。</li>
+      <li><strong>凸起点阵照片</strong>：清晰的<strong>实心圆点</strong>效果最好。</li>
+      <li><strong>空心圈 / 虚线点教材图</strong>：自动「实心化」后再检测（OCR 方法名可能为 <code>opencv_dots_solidified</code>）。</li>
     </ul>
     <div class="help-callout">
-      空心圈教材图、严重模糊或反光过强的照片容易失败。此时请改从主页面直接粘贴 Unicode 盲文。
+      严重模糊、反光过强，或<strong>立体/大幅透视斜拍</strong>仍容易失败。混合图（实心=凸起、空心=未凸起）不会误填空心圈。失败时可改粘贴 Unicode 盲文。
     </div>
     <p>图片识别接口为 <code>POST /v1/pipeline</code>（OCR → 单元格翻译 → 表格还原）。</p>
 
